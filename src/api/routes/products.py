@@ -40,22 +40,18 @@ async def list_products(
             exists(sa_select(BV.id).where(BV.product_id == Product.id, BV.status == "ACTIVE"))
         )
     products = await product_service.get_all(db, active_only=not include_inactive, filters=filters)
-    # Build bom_status map in one bulk query then construct response objects explicitly
-    bom_map: dict[int, int] = {}
+    active_ids: set[int] = set()
+    any_ids: set[int] = set()
     if products:
         ids = [p.id for p in products]
-        rows = await db.execute(
-            sa_select(
-                BV.product_id,
-                func.max(case((BV.status == "ACTIVE", 2), (BV.status == "DRAFT", 1), else_=0)).label("rank")
-            ).where(BV.product_id.in_(ids)).group_by(BV.product_id)
-        )
-        bom_map = {r.product_id: r.rank for r in rows}
+        r1 = await db.execute(sa_select(BV.product_id).where(BV.product_id.in_(ids), BV.status == "ACTIVE").distinct())
+        active_ids = {r.product_id for r in r1}
+        r2 = await db.execute(sa_select(BV.product_id).where(BV.product_id.in_(ids)).distinct())
+        any_ids = {r.product_id for r in r2}
     result = []
     for p in products:
-        rank = bom_map.get(p.id, 0)
         resp = ProductResponse.model_validate(p)
-        resp.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
+        resp.bom_status = "ACTIVE" if p.id in active_ids else "DRAFT" if p.id in any_ids else "NONE"
         result.append(resp)
     return result
 
@@ -67,17 +63,14 @@ async def create_product_endpoint(data: ProductCreate, db: AsyncSession = Depend
 
 @router.get("/{id}", response_model=ProductResponse)
 async def get_product(id: int, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select as sa_select, case, func
+    from sqlalchemy import select as sa_select
     from ..models.products import BomVersion as BV
     obj = await product_service.get(db, id)
     if not obj: raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    row = await db.execute(
-        sa_select(func.max(case((BV.status == "ACTIVE", 2), (BV.status == "DRAFT", 1), else_=0)).label("rank"))
-        .where(BV.product_id == id)
-    )
-    rank = row.scalar() or 0
+    r_active = await db.execute(sa_select(BV.id).where(BV.product_id == id, BV.status == "ACTIVE").limit(1))
+    r_any    = await db.execute(sa_select(BV.id).where(BV.product_id == id).limit(1))
     resp = ProductResponse.model_validate(obj)
-    resp.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
+    resp.bom_status = "ACTIVE" if r_active.first() else "DRAFT" if r_any.first() else "NONE"
     return resp
 
 

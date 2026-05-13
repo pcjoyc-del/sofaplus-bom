@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock, AlertCircle, CheckCircle2, Save } from 'lucide-react'
 import { api } from '../../api/client'
 import { FormDialog } from '../../components/ui/FormDialog'
 import { Input, Label, Select } from '../../components/ui/Input'
@@ -358,6 +358,14 @@ export default function BomBuilderPage() {
           )}
         </div>
       </div>
+
+      {/* DRAFT auto-save hint */}
+      {isDraft && (
+        <div className="flex items-center gap-2 px-4 py-2 mb-1 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+          <Save size={12} className="shrink-0" />
+          <span>ข้อมูลบันทึกอัตโนมัติทุกครั้งที่เพิ่ม/แก้ไข — กด <strong className="mx-0.5">Activate</strong> เมื่อ BOM พร้อมใช้งาน</span>
+        </div>
+      )}
 
       {/* ACTIVE hint */}
       {isActive && (
