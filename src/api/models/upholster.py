@@ -12,6 +12,7 @@ class UpholsterSource(Base):
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     default_unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    material_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default='ผ้า')
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

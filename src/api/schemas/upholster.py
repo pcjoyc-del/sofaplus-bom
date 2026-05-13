@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime, date
 from decimal import Decimal
 
+MATERIAL_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
 
 # ── UpholsterSource ───────────────────────────────────────────────────────────
 
@@ -10,11 +11,13 @@ class UpholsterSourceCreate(BaseModel):
     code: str
     name: str
     default_unit: str
+    material_type: str = 'ผ้า'
 
 class UpholsterSourceUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     default_unit: Optional[str] = None
+    material_type: Optional[str] = None
     is_active: Optional[bool] = None
 
 class UpholsterSourceResponse(BaseModel):
@@ -22,6 +25,7 @@ class UpholsterSourceResponse(BaseModel):
     code: str
     name: str
     default_unit: str
+    material_type: str
     is_active: bool
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)

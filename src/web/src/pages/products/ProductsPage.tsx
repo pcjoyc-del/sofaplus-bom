@@ -30,7 +30,8 @@ function formatSize(p: Product) {
   if (!p.standard_width && !p.standard_depth) return <span className="text-gray-400">—</span>
   const parts = [`W${parseFloat(p.standard_width ?? '0').toFixed(0)}`]
   if (p.standard_depth) parts.push(`D${parseFloat(p.standard_depth).toFixed(0)}`)
-  if (p.standard_bed_depth) parts.push(`Bed${parseFloat(p.standard_bed_depth).toFixed(0)}`)
+  const bed = p.standard_bed_depth ? parseFloat(p.standard_bed_depth) : 0
+  if (bed > 0) parts.push(`Bed${bed.toFixed(0)}`)
   return <span className="font-mono text-xs">{parts.join(' × ')}</span>
 }
 
@@ -133,8 +134,13 @@ export default function ProductsPage() {
           { key: 'category_id',  header: 'Category',      width: '100px', render: r => catMap[r.category_id]?.name ?? '-' },
           { key: 'type_id',      header: 'Type',          width: '100px', render: r => typeMap[r.type_id]?.code  ?? '-' },
           { key: 'model_id',     header: 'Model',         width: '100px', render: r => modelMap[r.model_id]?.code ?? '-' },
-          { key: 'size',         header: 'Standard Size', width: '140px', render: formatSize },
-          { key: 'status',       header: 'Status',        width: '90px',  render: r => <TagBadge label={r.status} color={STATUS_COLORS[r.status] ?? 'gray'} /> },
+          { key: 'size',      header: 'Size',        width: '130px', render: formatSize },
+          { key: 'size_type', header: 'Size Type',   width: '100px', render: () => (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">
+              มาตรฐาน
+            </span>
+          )},
+          { key: 'status',    header: 'Status',      width: '90px',  render: r => <TagBadge label={r.status} color={STATUS_COLORS[r.status] ?? 'gray'} /> },
           { key: 'bom',          header: 'BOM',           width: '70px',  render: r => (
             <button onClick={() => navigate(`/products/${r.id}/bom`)} className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-xs font-medium">
               <FileText size={13} /> Build

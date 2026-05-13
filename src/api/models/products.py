@@ -79,6 +79,7 @@ class BomLine(Base):
     line_type: Mapped[str] = mapped_column(String(30), nullable=False)  # MATERIAL | UPHOLSTER_PLACEHOLDER
     material_id: Mapped[Optional[int]] = mapped_column(ForeignKey("materials.id"), nullable=True)
     section: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    upholster_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     quantity_fixed: Mapped[Optional[float]] = mapped_column(Numeric(12, 4), nullable=True)
     quantity_formula: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

@@ -3,6 +3,9 @@ from typing import Optional
 from datetime import datetime, date
 from decimal import Decimal
 
+UPHOLSTER_SECTIONS = ['ที่นั่ง', 'พนักพิง', 'ข้าง', 'ทั้งหมด']
+UPHOLSTER_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
+
 
 # ── Product ───────────────────────────────────────────────────────────────────
 
@@ -67,13 +70,16 @@ class BomVersionResponse(BaseModel):
 # ── BOM Line ──────────────────────────────────────────────────────────────────
 
 class BomLineCreate(BaseModel):
-    line_type: str
+    line_type: str  # MATERIAL | UPHOLSTER_PLACEHOLDER
     line_order: int = 0
+    # MATERIAL
     material_id: Optional[int] = None
     quantity_fixed: Optional[Decimal] = None
     unit: Optional[str] = None
     note: Optional[str] = None
+    # UPHOLSTER_PLACEHOLDER
     section: Optional[str] = None
+    upholster_type: Optional[str] = None   # ผ้า / หนัง / หนังเทียม
     quantity_formula: Optional[str] = None
     qty_base: Optional[Decimal] = None
     qty_width_step: Optional[Decimal] = None
@@ -94,6 +100,7 @@ class BomLineUpdate(BaseModel):
     unit: Optional[str] = None
     note: Optional[str] = None
     section: Optional[str] = None
+    upholster_type: Optional[str] = None
     quantity_formula: Optional[str] = None
     qty_base: Optional[Decimal] = None
     qty_width_step: Optional[Decimal] = None
@@ -106,6 +113,7 @@ class BomLineResponse(BaseModel):
     line_type: str
     material_id: Optional[int]
     section: Optional[str]
+    upholster_type: Optional[str]
     quantity_fixed: Optional[Decimal]
     quantity_formula: Optional[str]
     unit: Optional[str]
@@ -124,7 +132,7 @@ class BomFullResponse(BaseModel):
 
 class BomLineBulkItem(BaseModel):
     material_id: int
-    quantity_fixed: Decimal
+    quantity_fixed: float
     unit: Optional[str] = None
     note: Optional[str] = None
     line_order: Optional[int] = None

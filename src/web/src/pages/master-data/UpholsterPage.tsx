@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/Badge'
 
 type Tab = 'sources' | 'collections' | 'colors'
 
-interface Source { id: number; code: string; name: string; default_unit: string; is_active: boolean }
+interface Source { id: number; code: string; name: string; default_unit: string; material_type: string; is_active: boolean }
 interface Collection { id: number; source_id: number; code: string; name: string | null; is_active: boolean }
 interface Color { id: number; collection_id: number; code: string; name: string | null; is_active: boolean }
 interface Price { id: number; price: string; effective_date: string; note: string | null }
@@ -50,8 +50,8 @@ export default function UpholsterPage() {
 
   // ── Sources ────────────────────────────────────────────────────────────────
 
-  const openCreateSource = () => { setEditing(null); setForm({ code: '', name: '', default_unit: 'เมตร' }); setError(''); setOpen(true) }
-  const openEditSource = (r: Source) => { setEditing(r); setForm({ code: r.code, name: r.name, default_unit: r.default_unit }); setError(''); setOpen(true) }
+  const openCreateSource = () => { setEditing(null); setForm({ code: '', name: '', default_unit: 'เมตร', material_type: 'ผ้า' }); setError(''); setOpen(true) }
+  const openEditSource = (r: Source) => { setEditing(r); setForm({ code: r.code, name: r.name, default_unit: r.default_unit, material_type: r.material_type ?? 'ผ้า' }); setError(''); setOpen(true) }
   const handleSourceSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
     try {
@@ -146,8 +146,11 @@ export default function UpholsterPage() {
           columns={[
             { key: 'code', header: 'Code', width: '100px' },
             { key: 'name', header: 'Name' },
-            { key: 'default_unit', header: 'Unit', width: '100px' },
-            { key: 'is_active', header: 'Status', width: '100px', render: r => <Badge active={r.is_active} /> },
+            { key: 'material_type', header: 'ประเภท', width: '110px', render: (r: Source) => (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${r.material_type === 'หนัง' ? 'bg-amber-100 text-amber-700' : r.material_type === 'หนังเทียม' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>{r.material_type ?? 'ผ้า'}</span>
+            )},
+            { key: 'default_unit', header: 'Unit', width: '80px' },
+            { key: 'is_active', header: 'Status', width: '90px', render: r => <Badge active={r.is_active} /> },
           ]}
           data={sources} loading={loading} onEdit={openEditSource} onDelete={deleteSource}
         />
@@ -231,7 +234,19 @@ export default function UpholsterPage() {
         <div><Label required>Code</Label><Input required value={form.code as string} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} maxLength={50} /></div>
         <div><Label>Name (optional)</Label><Input value={form.name as string} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
         {tab === 'sources' && (
-          <div><Label required>Default Unit</Label><Input required value={form.default_unit as string} onChange={e => setForm(f => ({ ...f, default_unit: e.target.value }))} placeholder="เมตร / หลา / ตร.ฟุต" /></div>
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label required>ประเภทวัสดุ</Label>
+                <Select required value={form.material_type as string ?? 'ผ้า'} onChange={e => setForm(f => ({ ...f, material_type: e.target.value }))}>
+                  <option value="ผ้า">ผ้า</option>
+                  <option value="หนัง">หนัง</option>
+                  <option value="หนังเทียม">หนังเทียม</option>
+                </Select>
+              </div>
+              <div><Label required>Default Unit</Label><Input required value={form.default_unit as string} onChange={e => setForm(f => ({ ...f, default_unit: e.target.value }))} placeholder="เมตร / หลา / ตร.ฟุต" /></div>
+            </div>
+          </>
         )}
       </FormDialog>
 
