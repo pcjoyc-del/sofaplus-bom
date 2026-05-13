@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from .base import CRUDBase
-from ..models.products import Product, BomVersion, BomLine
+from ..models.products import Product, BomVersion, BomLine, OverheadRate
 from ..models.master_data import Category, ProductType, ProductModel
 from ..models.materials import Material, MaterialPrice
 
@@ -219,11 +219,42 @@ async def get_bom_cost(db: AsyncSession, bom_version_id: int) -> dict:
                 "price_date": None,
             })
 
+    # Overhead calculation — ดึง overhead rate ตาม category ของ product (หรือ global)
+    overhead_rate = None
+    overhead_cost = None
+    total_estimated = round(total, 2)
+
+    if bom.product_id and total > 0:
+        product = await db.get(Product, bom.product_id)
+        if product:
+            # ค้นหา category-specific rate ก่อน แล้ว fallback เป็น global (IS NULL)
+            for cat_id in [product.category_id, None]:
+                cond = OverheadRate.category_id == cat_id if cat_id is not None else OverheadRate.category_id.is_(None)
+                rate_q = await db.execute(
+                    select(OverheadRate)
+                    .where(
+                        OverheadRate.effective_date <= date.today(),
+                        OverheadRate.rate_type == "GENERAL_MATERIAL",
+                        cond,
+                    )
+                    .order_by(OverheadRate.effective_date.desc())
+                    .limit(1)
+                )
+                rate_obj = rate_q.scalar_one_or_none()
+                if rate_obj and rate_obj.percentage:
+                    overhead_rate = float(rate_obj.percentage)
+                    overhead_cost = round(total * overhead_rate / 100, 2)
+                    total_estimated = round(total + overhead_cost, 2)
+                    break
+
     return {
         "bom_version_id": bom_version_id,
         "bom_number": bom.bom_number,
         "lines": result_lines,
         "total_material_cost": round(total, 2),
+        "overhead_rate": overhead_rate,
+        "overhead_cost": overhead_cost,
+        "total_estimated_cost": total_estimated,
     }
 
 

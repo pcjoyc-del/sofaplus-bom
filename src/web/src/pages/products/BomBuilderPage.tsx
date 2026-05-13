@@ -22,7 +22,7 @@ interface Material { id: number; mat_id: string; name: string; unit: string; gro
 interface MaterialGroup { id: number; code: string; name: string }
 interface BomFull { version: BomVersion; lines: BomLine[] }
 interface CostLine { bom_line_id: number; unit_price: number | null; line_cost: number | null }
-interface BomCost { bom_version_id: number; lines: CostLine[]; total_material_cost: number }
+interface BomCost { bom_version_id: number; lines: CostLine[]; total_material_cost: number; overhead_rate: number | null; overhead_cost: number | null; total_estimated_cost: number | null }
 
 const SECTIONS = ['ที่นั่ง', 'พนักพิง', 'ข้าง', 'ทั้งหมด']
 const UPHOLSTER_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
@@ -429,11 +429,20 @@ export default function BomBuilderPage() {
               )}
               {/* Cost Summary */}
               {costData && (
-                <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center justify-between">
-                  <div className="text-sm text-gray-500">รวมต้นทุนวัสดุหลัก <span className="ml-1 text-xs text-gray-400">({sortedLines.filter(l => l.line_type === 'MATERIAL').length} รายการ)</span></div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-gray-900">{fmtCurrency(costData.total_material_cost)}</p>
-                    <p className="text-xs text-gray-400">ไม่รวม Upholster + Overhead</p>
+                <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">ต้นทุนวัสดุหลัก <span className="text-xs text-gray-400">({sortedLines.filter(l => l.line_type === 'MATERIAL').length} รายการ)</span></span>
+                    <span className="font-mono font-medium text-gray-800">{fmtCurrency(costData.total_material_cost)}</span>
+                  </div>
+                  {costData.overhead_rate != null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">Overhead General Material <span className="text-xs text-gray-400">({costData.overhead_rate}%)</span></span>
+                      <span className="font-mono text-gray-600">{fmtCurrency(costData.overhead_cost)}</span>
+                    </div>
+                  )}
+                  <div className="border-t border-gray-100 pt-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">ประมาณการต้นทุนรวม <span className="text-xs text-gray-400 font-normal">(ไม่รวม Upholster)</span></span>
+                    <span className="text-lg font-bold text-gray-900">{fmtCurrency(costData.total_estimated_cost ?? costData.total_material_cost)}</span>
                   </div>
                 </div>
               )}

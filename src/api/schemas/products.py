@@ -91,6 +91,9 @@ class BomCostResponse(BaseModel):
     bom_number: Optional[str]
     lines: list[BomLineCostItem]
     total_material_cost: float
+    overhead_rate: Optional[float] = None      # % เช่น 3.5
+    overhead_cost: Optional[float] = None      # บาท
+    total_estimated_cost: Optional[float] = None  # material + overhead
 
 
 # ── BOM Line ──────────────────────────────────────────────────────────────────
