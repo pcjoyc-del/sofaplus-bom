@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# Environment — ห้าม commit ไฟล์นี้
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+src/web/dist/
+src/web/.cache/
+
+# Logs
+*.log
+logs/
+
+# Alembic (keep versions, ignore __pycache__)
+migrations/versions/__pycache__/
