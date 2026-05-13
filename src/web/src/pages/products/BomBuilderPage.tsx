@@ -291,12 +291,12 @@ export default function BomBuilderPage() {
         {product && formatSize(product) && <p className="text-xs text-gray-400 font-mono mt-0.5">Standard Size: {formatSize(product)}</p>}
       </div>
 
-      {/* Version switcher — แสดงเมื่อมีหลาย version */}
-      {versions.length > 1 && (
+      {/* Version switcher — แสดงเฉพาะ ACTIVE/ARCHIVED (ไม่แสดง DRAFT ที่ยังไม่ผ่าน activate) */}
+      {versions.filter(v => v.status !== 'DRAFT').length > 0 && (
         <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl mb-3">
           <span className="text-xs text-gray-500 shrink-0">Versions:</span>
           <div className="flex flex-wrap gap-1.5">
-            {[...versions].reverse().map(v => (
+            {[...versions].filter(v => v.status !== 'DRAFT').reverse().map(v => (
               <button key={v.id} onClick={() => loadBomVersionById(v.id)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
                   bom?.version.id === v.id
