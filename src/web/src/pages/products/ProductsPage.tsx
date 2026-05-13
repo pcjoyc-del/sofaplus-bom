@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, FileText } from 'lucide-react'
+import { Plus, FileText, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import { DataTable } from '../../components/ui/DataTable'
@@ -14,6 +14,7 @@ interface Product {
   id: number; code: string; category_id: number; type_id: number; model_id: number
   display_name: string | null; standard_width: string | null; standard_depth: string | null
   standard_bed_depth: string | null; status: string; is_active: boolean
+  bom_status: 'NONE' | 'DRAFT' | 'ACTIVE'
 }
 
 const EMPTY = {
@@ -134,18 +135,28 @@ export default function ProductsPage() {
           { key: 'category_id',  header: 'Category',      width: '100px', render: r => catMap[r.category_id]?.name ?? '-' },
           { key: 'type_id',      header: 'Type',          width: '100px', render: r => typeMap[r.type_id]?.code  ?? '-' },
           { key: 'model_id',     header: 'Model',         width: '100px', render: r => modelMap[r.model_id]?.code ?? '-' },
-          { key: 'size',      header: 'Size',        width: '130px', render: formatSize },
-          { key: 'size_type', header: 'Size Type',   width: '100px', render: () => (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-700">
-              มาตรฐาน
-            </span>
-          )},
+          { key: 'size',      header: 'Standard Size', width: '130px', render: formatSize },
+          { key: 'bom_status', header: 'BOM',          width: '140px', render: r => {
+            if (r.bom_status === 'ACTIVE') return (
+              <button onClick={() => navigate(`/products/${r.id}/bom`)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-medium hover:bg-green-100 transition-colors">
+                <CheckCircle2 size={12} /> Active BOM
+              </button>
+            )
+            if (r.bom_status === 'DRAFT') return (
+              <button onClick={() => navigate(`/products/${r.id}/bom`)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors">
+                <FileText size={12} /> กรอก BOM
+              </button>
+            )
+            return (
+              <button onClick={() => navigate(`/products/${r.id}/bom`)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 text-gray-500 border border-dashed border-gray-300 rounded-lg text-xs font-medium hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300 transition-colors">
+                <AlertCircle size={12} /> ยังไม่มี BOM
+              </button>
+            )
+          }},
           { key: 'status',    header: 'Status',      width: '90px',  render: r => <TagBadge label={r.status} color={STATUS_COLORS[r.status] ?? 'gray'} /> },
-          { key: 'bom',          header: 'BOM',           width: '70px',  render: r => (
-            <button onClick={() => navigate(`/products/${r.id}/bom`)} className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-xs font-medium">
-              <FileText size={13} /> Build
-            </button>
-          )},
         ]}
         data={filteredData} loading={loading} onEdit={openEdit} onDelete={handleDelete}
       />

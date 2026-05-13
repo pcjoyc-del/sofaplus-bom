@@ -29,7 +29,7 @@ async def list_products(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import exists, select as sa_select
+    from sqlalchemy import exists, select as sa_select, case, func
     from ..models.products import BomVersion as BV
     filters = []
     if category_id:    filters.append(Product.category_id == category_id)
@@ -39,7 +39,21 @@ async def list_products(
         filters.append(
             exists(sa_select(BV.id).where(BV.product_id == Product.id, BV.status == "ACTIVE"))
         )
-    return await product_service.get_all(db, active_only=not include_inactive, filters=filters)
+    products = await product_service.get_all(db, active_only=not include_inactive, filters=filters)
+    # Annotate each product with its BOM status in one bulk query
+    if products:
+        ids = [p.id for p in products]
+        rows = await db.execute(
+            sa_select(
+                BV.product_id,
+                func.max(case((BV.status == "ACTIVE", 2), (BV.status == "DRAFT", 1), else_=0)).label("rank")
+            ).where(BV.product_id.in_(ids)).group_by(BV.product_id)
+        )
+        bom_map = {r.product_id: r.rank for r in rows}
+        for p in products:
+            rank = bom_map.get(p.id, 0)
+            p.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
+    return products
 
 
 @router.post("", response_model=ProductResponse, status_code=201)
@@ -49,8 +63,16 @@ async def create_product_endpoint(data: ProductCreate, db: AsyncSession = Depend
 
 @router.get("/{id}", response_model=ProductResponse)
 async def get_product(id: int, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select, case, func
+    from ..models.products import BomVersion as BV
     obj = await product_service.get(db, id)
     if not obj: raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    row = await db.execute(
+        sa_select(func.max(case((BV.status == "ACTIVE", 2), (BV.status == "DRAFT", 1), else_=0)).label("rank"))
+        .where(BV.product_id == id)
+    )
+    rank = row.scalar() or 0
+    obj.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
     return obj
 
 

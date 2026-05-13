@@ -43,6 +43,7 @@ class ProductResponse(BaseModel):
     notes: Optional[str]
     is_active: bool
     bom_source: str
+    bom_status: str = "NONE"   # NONE | DRAFT | ACTIVE — computed, not stored
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
