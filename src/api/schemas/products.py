@@ -58,6 +58,7 @@ class BomVersionResponse(BaseModel):
     id: int
     product_id: Optional[int]
     version_number: str
+    bom_number: Optional[str]
     status: str
     effective_date: Optional[date]
     notes: Optional[str]
@@ -65,6 +66,30 @@ class BomVersionResponse(BaseModel):
     created_by: Optional[str]
     activated_at: Optional[datetime]
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── BOM Cost ──────────────────────────────────────────────────────────────────
+
+class BomLineCostItem(BaseModel):
+    bom_line_id: int
+    line_order: int
+    line_type: str
+    material_id: Optional[int] = None
+    material_name: Optional[str] = None
+    mat_id_code: Optional[str] = None
+    section: Optional[str] = None
+    upholster_type: Optional[str] = None
+    unit: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    line_cost: Optional[float] = None
+    price_date: Optional[date] = None
+
+class BomCostResponse(BaseModel):
+    bom_version_id: int
+    bom_number: Optional[str]
+    lines: list[BomLineCostItem]
+    total_material_cost: float
 
 
 # ── BOM Line ──────────────────────────────────────────────────────────────────

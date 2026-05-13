@@ -46,6 +46,7 @@ class BomVersion(Base):
     reference_model_id: Mapped[Optional[int]] = mapped_column(ForeignKey("models.id"), nullable=True)
     reference_width: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     version_number: Mapped[str] = mapped_column(String(10), nullable=False)
+    bom_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")
     effective_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

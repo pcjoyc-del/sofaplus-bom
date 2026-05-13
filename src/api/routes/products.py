@@ -5,13 +5,13 @@ from ..schemas.products import (
     ProductCreate, ProductUpdate, ProductResponse,
     BomVersionCreate, BomVersionResponse,
     BomLineCreate, BomLineUpdate, BomLineResponse,
-    BomLineBulkCreate, BomFullResponse,
+    BomLineBulkCreate, BomFullResponse, BomCostResponse,
 )
 from ..services.products import (
     product_service, create_product, get_active_bom,
     get_bom_versions, create_bom_version, activate_bom,
     get_bom_lines, add_bom_line, bulk_add_bom_lines,
-    update_bom_line, delete_bom_line, copy_bom_from,
+    update_bom_line, delete_bom_line, copy_bom_from, get_bom_cost,
 )
 from ..models.products import Product
 
@@ -92,6 +92,11 @@ async def copy_bom(id: int, source_product_id: int, db: AsyncSession = Depends(g
 @router.post("/bom/versions/{bom_id}/activate", response_model=BomVersionResponse)
 async def activate_bom_version(bom_id: int, db: AsyncSession = Depends(get_db)):
     return await activate_bom(db, bom_id)
+
+
+@router.get("/bom/versions/{bom_id}/cost", response_model=BomCostResponse)
+async def get_bom_cost_endpoint(bom_id: int, db: AsyncSession = Depends(get_db)):
+    return await get_bom_cost(db, bom_id)
 
 
 # ── BOM Lines ─────────────────────────────────────────────────────────────────
