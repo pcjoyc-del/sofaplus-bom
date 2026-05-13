@@ -120,7 +120,8 @@ export default function BomBuilderPage() {
       api.get<BomVersion[]>(`/products/${productId}/bom/versions`).then(setVersions),
       api.get<Material[]>('/materials').then(setMaterials),
       api.get<MaterialGroup[]>('/material-groups').then(setMatGroups),
-      api.get<Product[]>('/products').then(ps => setAllProducts(ps.filter(p => p.id !== productId))),
+      // เฉพาะ product ที่มี Active BOM เท่านั้น — ใช้เป็น source ใน Copy from
+      api.get<Product[]>('/products?has_active_bom=true').then(ps => setAllProducts(ps.filter(p => p.id !== productId))),
     ]).then(loadBom).finally(() => setLoading(false))
   }, [productId])
 
@@ -329,22 +330,32 @@ export default function BomBuilderPage() {
         <div className="flex items-center gap-2">
           {!bom && <button onClick={handleCreateDraft} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"><Plus size={14} /> New BOM</button>}
           {bom && isDraft && (
+            <div className="relative group">
+              <button onClick={handleActivate} disabled={activating || !canActivate}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                <CheckCircle size={13} /> Activate
+              </button>
+              {!canActivate && (
+                <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-10">
+                  <AlertCircle size={11} className="inline mr-1" />{activateHint}
+                </div>
+              )}
+            </div>
+          )}
+          {bom && isActive && (
             <>
-              <button onClick={() => { setCopySourceId(allProducts[0]?.id ?? 0); setError(''); setCopyOpen(true) }} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"><Copy size={13} /> Copy from</button>
-              <div className="relative group">
-                <button onClick={handleActivate} disabled={activating || !canActivate}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                  <CheckCircle size={13} /> Activate
+              {/* Copy from: อยู่ใน ACTIVE — สร้าง Draft ใหม่จาก template ของ Product อื่น */}
+              {allProducts.length > 0 && (
+                <button onClick={() => { setCopySourceId(allProducts[0]?.id ?? 0); setError(''); setCopyOpen(true) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg">
+                  <Copy size={13} /> Copy from
                 </button>
-                {!canActivate && (
-                  <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-10">
-                    <AlertCircle size={11} className="inline mr-1" />{activateHint}
-                  </div>
-                )}
-              </div>
+              )}
+              <button onClick={handleCreateDraft} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg">
+                <Plus size={13} /> New Draft
+              </button>
             </>
           )}
-          {bom && isActive && <button onClick={handleCreateDraft} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"><Plus size={13} /> New Draft</button>}
         </div>
       </div>
 
@@ -469,13 +480,20 @@ export default function BomBuilderPage() {
         <div><Label>Note</Label><Input value={matEditForm.note} onChange={e => setMatEditForm(f => ({ ...f, note: e.target.value }))} /></div>
       </FormDialog>
 
-      <FormDialog open={copyOpen} onClose={() => setCopyOpen(false)} title="Copy BOM from Product" onSubmit={handleCopyBom} saving={saving} error={error}>
-        <p className="text-sm text-gray-500">คัดลอก Active BOM จาก Product อื่น มาเป็น Draft ใหม่</p>
-        <div><Label required>Source Product</Label>
+      <FormDialog open={copyOpen} onClose={() => setCopyOpen(false)} title="Copy BOM จาก Product อื่น" onSubmit={handleCopyBom} saving={saving} error={error}>
+        <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 space-y-1">
+          <p><span className="font-medium text-gray-700">Copy FROM:</span> Product ที่เลือก (Active BOM)</p>
+          <p><span className="font-medium text-gray-700">Copy TO:</span> {product?.display_name} → สร้าง Draft ใหม่</p>
+        </div>
+        <div>
+          <Label required>เลือก Product ต้นทาง (มี Active BOM)</Label>
           <Select required value={copySourceId} onChange={e => setCopySourceId(+e.target.value)}>
-            <option value={0} disabled>Select product</option>
+            <option value={0} disabled>Select source product</option>
             {allProducts.map(p => <option key={p.id} value={p.id}>{p.display_name ?? p.code}</option>)}
           </Select>
+          {allProducts.length === 0 && (
+            <p className="text-xs text-amber-600 mt-1">ไม่มี Product อื่นที่มี Active BOM</p>
+          )}
         </div>
       </FormDialog>
     </div>

@@ -25,13 +25,20 @@ async def list_products(
     category_id: int | None = None,
     type_id: int | None = None,
     status: str | None = None,
+    has_active_bom: bool = False,
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import exists, select as sa_select
+    from ..models.products import BomVersion as BV
     filters = []
-    if category_id: filters.append(Product.category_id == category_id)
-    if type_id:     filters.append(Product.type_id == type_id)
-    if status:      filters.append(Product.status == status)
+    if category_id:    filters.append(Product.category_id == category_id)
+    if type_id:        filters.append(Product.type_id == type_id)
+    if status:         filters.append(Product.status == status)
+    if has_active_bom:
+        filters.append(
+            exists(sa_select(BV.id).where(BV.product_id == Product.id, BV.status == "ACTIVE"))
+        )
     return await product_service.get_all(db, active_only=not include_inactive, filters=filters)
 
 
