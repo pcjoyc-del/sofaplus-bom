@@ -101,6 +101,15 @@ async def get_bom_cost_endpoint(bom_id: int, db: AsyncSession = Depends(get_db))
 
 # ── BOM Lines ─────────────────────────────────────────────────────────────────
 
+@router.get("/bom/versions/{bom_id}", response_model=BomVersionResponse)
+async def get_bom_version(bom_id: int, db: AsyncSession = Depends(get_db)):
+    from ..models.products import BomVersion as BomVersionModel
+    obj = await db.get(BomVersionModel, bom_id)
+    if not obj:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "BOM version not found")
+    return obj
+
+
 @router.get("/bom/versions/{bom_id}/lines", response_model=list[BomLineResponse])
 async def list_bom_lines(bom_id: int, db: AsyncSession = Depends(get_db)):
     return await get_bom_lines(db, bom_id)

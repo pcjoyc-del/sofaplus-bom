@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock } from 'lucide-react'
+import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock, AlertCircle } from 'lucide-react'
 import { api } from '../../api/client'
 import { FormDialog } from '../../components/ui/FormDialog'
 import { Input, Label, Select } from '../../components/ui/Input'
@@ -21,10 +21,7 @@ interface BomLine {
 interface Material { id: number; mat_id: string; name: string; unit: string; group_id: number }
 interface MaterialGroup { id: number; code: string; name: string }
 interface BomFull { version: BomVersion; lines: BomLine[] }
-interface CostLine {
-  bom_line_id: number; line_type: string; quantity: number | null
-  unit_price: number | null; line_cost: number | null; price_date: string | null
-}
+interface CostLine { bom_line_id: number; unit_price: number | null; line_cost: number | null }
 interface BomCost { bom_version_id: number; lines: CostLine[]; total_material_cost: number }
 
 const SECTIONS = ['ที่นั่ง', 'พนักพิง', 'ข้าง', 'ทั้งหมด']
@@ -39,12 +36,10 @@ function formatSize(p: Product) {
   if (bed > 0) parts.push(`Bed${bed.toFixed(0)}`)
   return parts.join(' × ')
 }
-
-function fmt(n: number | string | null | undefined, decimals = 2) {
+function fmt(n: number | string | null | undefined) {
   if (n == null) return '—'
-  return parseFloat(String(n)).toLocaleString('th-TH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+  return parseFloat(String(n)).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
-
 function fmtCurrency(n: number | null | undefined) {
   if (n == null) return '—'
   return `฿${n.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
@@ -81,6 +76,20 @@ export default function BomBuilderPage() {
   const groupMap = useMemo(() => Object.fromEntries(matGroups.map(g => [g.id, g])), [matGroups])
   const costMap = useMemo(() => Object.fromEntries((costData?.lines ?? []).map(l => [l.bom_line_id, l])), [costData])
 
+  // ── Load specific BOM version ──────────────────────────────────────────────
+  const loadBomVersionById = async (versionId: number) => {
+    const [versionRes, lines] = await Promise.all([
+      api.get<BomVersion>(`/products/bom/versions/${versionId}`),
+      api.get<BomLine[]>(`/products/bom/versions/${versionId}/lines`),
+    ])
+    setBom({ version: versionRes, lines })
+    try {
+      const cost = await api.get<BomCost>(`/products/bom/versions/${versionId}/cost`)
+      setCostData(cost)
+    } catch { setCostData(null) }
+  }
+
+  // ── Load default BOM (prefer ACTIVE, fallback latest) ─────────────────────
   const loadBom = async () => {
     try {
       const data = await api.get<BomFull>(`/products/${productId}/bom`)
@@ -88,6 +97,12 @@ export default function BomBuilderPage() {
       const cost = await api.get<BomCost>(`/products/bom/versions/${data.version.id}/cost`)
       setCostData(cost)
     } catch { setBom(null); setCostData(null) }
+  }
+
+  const reloadVersions = async () => {
+    const updated = await api.get<BomVersion[]>(`/products/${productId}/bom/versions`)
+    setVersions(updated)
+    return updated
   }
 
   useEffect(() => {
@@ -118,6 +133,12 @@ export default function BomBuilderPage() {
     return { groupedMaterials: Object.values(grouped), upholsterLines: uphLines }
   }, [sortedLines, matMap, groupMap])
 
+  // Activate validation
+  const hasMaterial  = groupedMaterials.length > 0
+  const hasUpholster = upholsterLines.length > 0
+  const canActivate  = hasMaterial && hasUpholster
+  const activateHint = !hasMaterial ? 'ต้องมี Material line ก่อน' : !hasUpholster ? 'ต้องมี Upholster Placeholder ก่อน' : ''
+
   // ── Upholster handlers ─────────────────────────────────────────────────────
   const openAddUph = () => { setEditingUph(null); setUphForm({ ...UPH_EMPTY, line_order: sortedLines.length + 1 }); setError(''); setUphOpen(true) }
   const openEditUph = (line: BomLine) => {
@@ -132,7 +153,7 @@ export default function BomBuilderPage() {
       if (uphForm.qty_base) { payload.qty_base = parseFloat(uphForm.qty_base); if (uphForm.qty_width_step) payload.qty_width_step = parseFloat(uphForm.qty_width_step); if (uphForm.qty_step_increment) payload.qty_step_increment = parseFloat(uphForm.qty_step_increment) }
       else if (uphForm.quantity_fixed) payload.quantity_fixed = parseFloat(uphForm.quantity_fixed)
       editingUph ? await api.put(`/products/bom/lines/${editingUph.id}`, payload) : await api.post(`/products/bom/versions/${bom!.version.id}/lines`, payload)
-      setUphOpen(false); await loadBom()
+      setUphOpen(false); await loadBomVersionById(bom!.version.id)
     } catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
@@ -141,44 +162,71 @@ export default function BomBuilderPage() {
   const openEditMat = (line: BomLine) => { setEditingMat(line); setMatEditForm({ quantity_fixed: line.quantity_fixed ?? '', unit: line.unit ?? '', note: line.note ?? '' }); setError(''); setMatEditOpen(true) }
   const handleMatEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
-    try { await api.put(`/products/bom/lines/${editingMat!.id}`, { quantity_fixed: parseFloat(matEditForm.quantity_fixed), unit: matEditForm.unit || null, note: matEditForm.note || null }); setMatEditOpen(false); await loadBom() }
+    try { await api.put(`/products/bom/lines/${editingMat!.id}`, { quantity_fixed: parseFloat(matEditForm.quantity_fixed), unit: matEditForm.unit || null, note: matEditForm.note || null }); setMatEditOpen(false); await loadBomVersionById(bom!.version.id) }
     catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
 
-  const handleDeleteLine = async (line: BomLine) => { if (!confirm('Delete this BOM line?')) return; await api.delete(`/products/bom/lines/${line.id}`); await loadBom() }
+  const handleDeleteLine = async (line: BomLine) => {
+    if (!confirm('Delete this BOM line?')) return
+    await api.delete(`/products/bom/lines/${line.id}`); await loadBomVersionById(bom!.version.id)
+  }
+
   const handleActivate = async () => {
-    if (!bom || !confirm(`Activate BOM v${bom.version.version_number}?`)) return
-    setActivating(true); try { await api.post(`/products/bom/versions/${bom.version.id}/activate`, {}); await loadBom() } finally { setActivating(false) }
+    if (!bom || !confirm(`Activate ${bom.version.bom_number ?? 'BOM'}?`)) return
+    setActivating(true)
+    try {
+      await api.post(`/products/bom/versions/${bom.version.id}/activate`, {})
+      await reloadVersions()
+      await loadBomVersionById(bom.version.id)
+    } catch (err: unknown) { alert((err as Error).message) }
+    finally { setActivating(false) }
   }
+
+  // Create draft → auto-switch to new draft
   const handleCreateDraft = async () => {
-    const next = `1.${versions.length}`
-    await api.post(`/products/${productId}/bom/versions`, { version_number: next })
-    setVersions(await api.get<BomVersion[]>(`/products/${productId}/bom/versions`)); await loadBom()
+    const updated = await reloadVersions()
+    const next = `1.${updated.length}`
+    const newDraft = await api.post<BomVersion>(`/products/${productId}/bom/versions`, { version_number: next })
+    await reloadVersions()
+    // Switch immediately to new DRAFT so user can edit
+    await loadBomVersionById(newDraft.id)
   }
+
   const handleCopyBom = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
-    try { await api.post(`/products/${productId}/bom/copy?source_product_id=${copySourceId}`, {}); setCopyOpen(false); setVersions(await api.get<BomVersion[]>(`/products/${productId}/bom/versions`)); await loadBom() }
-    catch (err: unknown) { setError((err as Error).message) }
+    try {
+      const newBom = await api.post<BomVersion>(`/products/${productId}/bom/copy?source_product_id=${copySourceId}`, {})
+      setCopyOpen(false); await reloadVersions(); await loadBomVersionById(newBom.id)
+    } catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
+
   const moveOrder = async (line: BomLine, dir: 'up' | 'down') => {
     const idx = sortedLines.findIndex(l => l.id === line.id)
     const swapIdx = dir === 'up' ? idx - 1 : idx + 1
     if (swapIdx < 0 || swapIdx >= sortedLines.length) return
     const other = sortedLines[swapIdx]
     await Promise.all([api.put(`/products/bom/lines/${line.id}`, { line_order: other.line_order }), api.put(`/products/bom/lines/${other.id}`, { line_order: line.line_order })])
-    await loadBom()
+    await loadBomVersionById(bom!.version.id)
   }
 
+  const onBulkSuccess = () => loadBomVersionById(bom!.version.id)
+
   if (loading) return <div className="flex items-center justify-center h-48 text-gray-400">Loading...</div>
+
+  const STATUS_STYLE: Record<string, string> = {
+    ACTIVE:   'bg-sky-700 text-white',
+    DRAFT:    'bg-amber-500 text-white',
+    ARCHIVED: 'bg-gray-200 text-gray-500',
+  }
 
   // ── Line row ───────────────────────────────────────────────────────────────
   const LineRow = ({ line }: { line: BomLine }) => {
     const isUph = line.line_type === 'UPHOLSTER_PLACEHOLDER'
-    const mat = line.material_id ? matMap[line.material_id] : null
-    const cost = costMap[line.id]
-    const idx = sortedLines.indexOf(line)
+    const mat   = line.material_id ? matMap[line.material_id] : null
+    const cost  = costMap[line.id]
+    const idx   = sortedLines.indexOf(line)
     return (
       <div className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50/50 transition-colors">
         <div className="flex flex-col items-center gap-0.5 shrink-0 w-6 pt-0.5">
@@ -190,7 +238,6 @@ export default function BomBuilderPage() {
             </div>
           )}
         </div>
-
         <div className="flex-1 min-w-0">
           <p className="text-sm text-gray-800">
             {isUph ? line.section : (mat?.name ?? `ID:${line.material_id}`)}
@@ -203,7 +250,7 @@ export default function BomBuilderPage() {
                 <span>Qty: <span className="font-mono text-gray-700">{fmt(line.quantity_fixed)} {line.unit}</span></span>
                 {cost?.unit_price != null && <span>× <span className="font-mono text-gray-700">{fmtCurrency(cost.unit_price)}</span></span>}
                 {cost?.line_cost != null && <span className="font-semibold text-gray-800">= {fmtCurrency(cost.line_cost)}</span>}
-                {!cost?.unit_price && <span className="text-amber-500 text-xs">ไม่มีราคา</span>}
+                {cost?.unit_price == null && <span className="text-amber-500">ไม่มีราคา</span>}
               </>
             )}
             {isUph && line.qty_base && <span>Linear Step: base={fmt(line.qty_base)} / {line.qty_width_step}cm / +{line.qty_step_increment}</span>}
@@ -211,7 +258,6 @@ export default function BomBuilderPage() {
             {line.note && <span className="italic text-gray-400">{line.note}</span>}
           </div>
         </div>
-
         {isDraft && (
           <div className="flex items-center gap-1 shrink-0">
             <button onClick={() => isUph ? openEditUph(line) : openEditMat(line)} className="p-1.5 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded transition-colors"><Pencil size={13} /></button>
@@ -229,10 +275,30 @@ export default function BomBuilderPage() {
         <button onClick={() => navigate('/products')} className="p-1.5 text-gray-400 hover:text-gray-600 rounded"><ArrowLeft size={16} /></button>
         <h1 className="text-lg font-semibold text-gray-900">BOM Builder</h1>
       </div>
-      <div className="ml-9 mb-5">
+      <div className="ml-9 mb-4">
         <p className="text-sm font-medium text-gray-700">{product?.display_name ?? product?.code}</p>
         {product && formatSize(product) && <p className="text-xs text-gray-400 font-mono mt-0.5">Standard Size: {formatSize(product)}</p>}
       </div>
+
+      {/* Version switcher — แสดงเมื่อมีหลาย version */}
+      {versions.length > 1 && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl mb-3">
+          <span className="text-xs text-gray-500 shrink-0">Versions:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {[...versions].reverse().map(v => (
+              <button key={v.id} onClick={() => loadBomVersionById(v.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                  bom?.version.id === v.id
+                    ? STATUS_STYLE[v.status] + ' border-transparent'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
+                }`}>
+                <span className={`w-1.5 h-1.5 rounded-full inline-block ${v.status === 'ACTIVE' ? 'bg-green-400' : v.status === 'DRAFT' ? 'bg-amber-400' : 'bg-gray-300'}`} />
+                {v.bom_number ?? `v${v.version_number}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* BOM Version bar */}
       <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-5 py-3 mb-1">
@@ -255,7 +321,17 @@ export default function BomBuilderPage() {
           {bom && isDraft && (
             <>
               <button onClick={() => { setCopySourceId(allProducts[0]?.id ?? 0); setError(''); setCopyOpen(true) }} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"><Copy size={13} /> Copy from</button>
-              <button onClick={handleActivate} disabled={activating || sortedLines.length === 0} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-40"><CheckCircle size={13} /> Activate</button>
+              <div className="relative group">
+                <button onClick={handleActivate} disabled={activating || !canActivate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  <CheckCircle size={13} /> Activate
+                </button>
+                {!canActivate && (
+                  <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-10">
+                    <AlertCircle size={11} className="inline mr-1" />{activateHint}
+                  </div>
+                )}
+              </div>
             </>
           )}
           {bom && isActive && <button onClick={handleCreateDraft} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"><Plus size={13} /> New Draft</button>}
@@ -264,8 +340,8 @@ export default function BomBuilderPage() {
 
       {/* ACTIVE hint */}
       {isActive && (
-        <div className="flex items-center gap-2 px-5 py-2 mb-4 bg-sky-50 border border-sky-200 rounded-lg text-xs text-sky-700">
-          <Lock size={12} /> BOM นี้ Active แล้ว — กด <strong>New Draft</strong> เพื่อแก้ไข
+        <div className="flex items-center gap-2 px-4 py-2 mb-4 bg-sky-50 border border-sky-200 rounded-lg text-xs text-sky-700">
+          <Lock size={12} /> BOM นี้ Active แล้ว — กด <strong className="mx-0.5">New Draft</strong> เพื่อแก้ไข
         </div>
       )}
 
@@ -282,6 +358,14 @@ export default function BomBuilderPage() {
             )}
           </div>
 
+          {/* Validate hints for DRAFT */}
+          {isDraft && (!hasMaterial || !hasUpholster) && (
+            <div className="flex gap-3 mb-3">
+              {!hasMaterial && <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600"><AlertCircle size={12} /> ยังไม่มี Material — กด "+ Materials"</div>}
+              {!hasUpholster && <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-600"><AlertCircle size={12} /> ยังไม่มี Upholster Placeholder — กด "+ Upholster"</div>}
+            </div>
+          )}
+
           {sortedLines.length === 0 ? (
             <div className="bg-white border border-dashed border-gray-300 rounded-xl flex items-center justify-center h-28 text-gray-400 text-sm">
               No BOM lines — click "+ Materials" or "+ Upholster" to start
@@ -294,31 +378,22 @@ export default function BomBuilderPage() {
                     <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{group?.name ?? 'Unknown Group'}</span>
                     <span className="text-xs text-gray-400">({lines.length})</span>
                   </div>
-                  <div className="divide-y divide-gray-50">
-                    {lines.map(line => <LineRow key={line.id} line={line} />)}
-                  </div>
+                  <div className="divide-y divide-gray-50">{lines.map(line => <LineRow key={line.id} line={line} />)}</div>
                 </div>
               ))}
-
               {upholsterLines.length > 0 && (
                 <div className="bg-amber-50/60 border border-amber-200 rounded-xl overflow-hidden">
                   <div className="flex items-center gap-2 px-4 py-2 bg-amber-100/60 border-b border-amber-200">
                     <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Upholster Placeholders</span>
                     <span className="text-xs text-amber-500">({upholsterLines.length})</span>
                   </div>
-                  <div className="divide-y divide-amber-100">
-                    {upholsterLines.map(line => <LineRow key={line.id} line={line} />)}
-                  </div>
+                  <div className="divide-y divide-amber-100">{upholsterLines.map(line => <LineRow key={line.id} line={line} />)}</div>
                 </div>
               )}
-
               {/* Cost Summary */}
               {costData && (
                 <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center justify-between">
-                  <div className="text-sm text-gray-500">
-                    รวมต้นทุนวัสดุหลัก
-                    <span className="ml-2 text-xs text-gray-400">({sortedLines.filter(l => l.line_type === 'MATERIAL').length} รายการ)</span>
-                  </div>
+                  <div className="text-sm text-gray-500">รวมต้นทุนวัสดุหลัก <span className="ml-1 text-xs text-gray-400">({sortedLines.filter(l => l.line_type === 'MATERIAL').length} รายการ)</span></div>
                   <div className="text-right">
                     <p className="text-lg font-bold text-gray-900">{fmtCurrency(costData.total_material_cost)}</p>
                     <p className="text-xs text-gray-400">ไม่รวม Upholster + Overhead</p>
@@ -331,7 +406,7 @@ export default function BomBuilderPage() {
       )}
 
       {/* Dialogs */}
-      <BulkMaterialDialog open={bulkOpen} onClose={() => setBulkOpen(false)} bomVersionId={bom?.version.id ?? 0} onSuccess={loadBom} />
+      <BulkMaterialDialog open={bulkOpen} onClose={() => setBulkOpen(false)} bomVersionId={bom?.version.id ?? 0} onSuccess={onBulkSuccess} />
 
       <FormDialog open={uphOpen} onClose={() => setUphOpen(false)} title={editingUph ? 'Edit Upholster Placeholder' : 'Add Upholster Placeholder'} onSubmit={handleUphSubmit} saving={saving} error={error} width="max-w-lg">
         <div className="grid grid-cols-2 gap-3">
@@ -355,7 +430,7 @@ export default function BomBuilderPage() {
         </div>
         <details className="rounded-lg border border-gray-200">
           <summary className="px-3 py-2 text-xs font-medium text-gray-400 cursor-pointer select-none hover:text-gray-600">Linear Step Formula (Phase 2)</summary>
-          <div className="px-3 pb-3 pt-2 grid grid-cols-3 gap-2 bg-gray-50/50">
+          <div className="px-3 pb-3 pt-2 grid grid-cols-3 gap-2">
             <div><Label>Base qty</Label><Input type="number" step="0.01" value={uphForm.qty_base} onChange={e => setUphForm(f => ({ ...f, qty_base: e.target.value }))} placeholder="4.5" /></div>
             <div><Label>Width step</Label><Input type="number" step="0.01" value={uphForm.qty_width_step} onChange={e => setUphForm(f => ({ ...f, qty_width_step: e.target.value }))} placeholder="10" /></div>
             <div><Label>+qty/step</Label><Input type="number" step="0.0001" value={uphForm.qty_step_increment} onChange={e => setUphForm(f => ({ ...f, qty_step_increment: e.target.value }))} placeholder="0.3" /></div>

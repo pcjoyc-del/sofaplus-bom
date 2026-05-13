@@ -85,6 +85,16 @@ async def activate_bom(db: AsyncSession, bom_id: int) -> BomVersion:
     bom = await db.get(BomVersion, bom_id)
     if not bom:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "BOM version not found")
+
+    # Validate: ต้องมีทั้ง Material และ Upholster Placeholder
+    lines = await get_bom_lines(db, bom_id)
+    has_material   = any(l.line_type == "MATERIAL"              for l in lines)
+    has_upholster  = any(l.line_type == "UPHOLSTER_PLACEHOLDER" for l in lines)
+    if not has_material:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "BOM ต้องมี Material line อย่างน้อย 1 รายการก่อน Activate")
+    if not has_upholster:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "BOM ต้องมี Upholster Placeholder อย่างน้อย 1 รายการก่อน Activate")
+
     existing = await get_active_bom(db, bom.product_id)
     if existing and existing.id != bom_id:
         existing.status = "ARCHIVED"
