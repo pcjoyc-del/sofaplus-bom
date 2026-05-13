@@ -8,7 +8,7 @@ import { Badge } from '../../components/ui/Badge'
 
 interface Category { id: number; code: string; name: string }
 interface ProductModel { id: number; category_id: number; code: string; name: string | null; is_active: boolean }
-const EMPTY = { category_id: 0, code: '', name: '' }
+const EMPTY = { category_id: 0, code: '' }
 
 export default function ModelsPage() {
   const [categories, setCategories] = useState<Category[]>([])
@@ -28,12 +28,12 @@ export default function ModelsPage() {
   const filtered = filterCat ? data.filter(m => m.category_id === filterCat) : data
 
   const openCreate = () => { setEditing(null); setForm({ ...EMPTY, category_id: filterCat || (categories[0]?.id ?? 0) }); setError(''); setOpen(true) }
-  const openEdit = (row: ProductModel) => { setEditing(row); setForm({ category_id: row.category_id, code: row.code, name: row.name ?? '' }); setError(''); setOpen(true) }
+  const openEdit = (row: ProductModel) => { setEditing(row); setForm({ category_id: row.category_id, code: row.code }); setError(''); setOpen(true) }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
     try {
-      const payload = { ...form, name: form.name || null }
+      const payload = { ...form, name: form.code }
       editing ? await api.put(`/models/${editing.id}`, payload) : await api.post('/models', payload)
       setOpen(false); await load()
     } catch (err: unknown) { setError((err as Error).message) }
@@ -59,15 +59,14 @@ export default function ModelsPage() {
       <div className="mb-4">
         <Select value={filterCat} onChange={e => setFilterCat(+e.target.value)} className="w-48">
           <option value={0}>All Categories</option>
-          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {categories.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
         </Select>
       </div>
 
       <DataTable
         columns={[
-          { key: 'code', header: 'Code', width: '140px' },
-          { key: 'name', header: 'Name', render: r => r.name ?? <span className="text-gray-400 italic">—</span> },
-          { key: 'category_id', header: 'Category', width: '120px', render: r => catMap[r.category_id]?.name ?? '-' },
+          { key: 'code', header: 'Code' },
+          { key: 'category_id', header: 'Category', width: '140px', render: r => catMap[r.category_id]?.code ?? '-' },
           { key: 'is_active', header: 'Status', width: '100px', render: r => <Badge active={r.is_active} /> },
         ]}
         data={filtered} loading={loading} onEdit={openEdit} onDelete={handleDelete}
@@ -78,11 +77,10 @@ export default function ModelsPage() {
           <Label required>Category</Label>
           <Select required value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: +e.target.value }))}>
             <option value={0} disabled>Select category</option>
-            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {categories.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
           </Select>
         </div>
         <div><Label required>Code</Label><Input required value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="CHANA" maxLength={30} /></div>
-        <div><Label>Name (optional)</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Same as code if empty" /></div>
       </FormDialog>
     </div>
   )

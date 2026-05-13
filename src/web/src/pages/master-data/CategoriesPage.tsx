@@ -9,7 +9,7 @@ import { Badge } from '../../components/ui/Badge'
 interface Category {
   id: number; code: string; name: string; display_order: number; is_active: boolean
 }
-const EMPTY = { code: '', name: '', display_order: 0 }
+const EMPTY = { code: '', display_order: 0 }
 
 export default function CategoriesPage() {
   const [data, setData] = useState<Category[]>([])
@@ -28,19 +28,22 @@ export default function CategoriesPage() {
   useEffect(() => { load() }, [])
 
   const openCreate = () => { setEditing(null); setForm(EMPTY); setError(''); setOpen(true) }
-  const openEdit = (row: Category) => { setEditing(row); setForm({ code: row.code, name: row.name, display_order: row.display_order }); setError(''); setOpen(true) }
+  const openEdit = (row: Category) => {
+    setEditing(row); setForm({ code: row.code, display_order: row.display_order }); setError(''); setOpen(true)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
     try {
-      editing ? await api.put(`/categories/${editing.id}`, form) : await api.post('/categories', form)
+      const payload = { ...form, name: form.code }
+      editing ? await api.put(`/categories/${editing.id}`, payload) : await api.post('/categories', payload)
       setOpen(false); await load()
     } catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
 
   const handleDelete = async (row: Category) => {
-    if (!confirm(`Deactivate "${row.name}"?`)) return
+    if (!confirm(`Deactivate "${row.code}"?`)) return
     await api.delete(`/categories/${row.id}`); await load()
   }
 
@@ -58,8 +61,7 @@ export default function CategoriesPage() {
 
       <DataTable
         columns={[
-          { key: 'code', header: 'Code', width: '100px' },
-          { key: 'name', header: 'Name' },
+          { key: 'code', header: 'Code' },
           { key: 'display_order', header: 'Order', width: '80px' },
           { key: 'is_active', header: 'Status', width: '100px', render: r => <Badge active={r.is_active} /> },
         ]}
@@ -67,8 +69,7 @@ export default function CategoriesPage() {
       />
 
       <FormDialog open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Category' : 'Add Category'} onSubmit={handleSubmit} saving={saving} error={error}>
-        <div><Label required>Code</Label><Input required value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="SF" maxLength={10} /></div>
-        <div><Label required>Name</Label><Input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Sofa" /></div>
+        <div><Label required>Code</Label><Input required value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="Sofa" maxLength={30} /></div>
         <div><Label>Display Order</Label><Input type="number" value={form.display_order} onChange={e => setForm(f => ({ ...f, display_order: +e.target.value }))} /></div>
       </FormDialog>
     </div>

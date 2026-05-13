@@ -125,7 +125,7 @@ export default function ProductsPage() {
       <div className="mb-4">
         <Select value={filterCat} onChange={e => setFilterCat(+e.target.value)} className="w-48">
           <option value={0}>All Categories</option>
-          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {categories.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
         </Select>
       </div>
 
@@ -136,23 +136,28 @@ export default function ProductsPage() {
           { key: 'type_id',      header: 'Type',          width: '100px', render: r => typeMap[r.type_id]?.code  ?? '-' },
           { key: 'model_id',     header: 'Model',         width: '100px', render: r => modelMap[r.model_id]?.code ?? '-' },
           { key: 'size',      header: 'Standard Size', width: '130px', render: formatSize },
-          { key: 'bom_status', header: 'BOM',          width: '140px', render: r => {
+          { key: 'bom_status', header: 'BOM',          width: '150px', render: r => {
             if (r.bom_status === 'ACTIVE') return (
-              <button onClick={() => navigate(`/products/${r.id}/bom`)}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-medium hover:bg-green-100 transition-colors">
-                <CheckCircle2 size={12} /> Active BOM
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-medium">
+                  <CheckCircle2 size={12} /> Active
+                </span>
+                <button onClick={() => navigate(`/products/${r.id}/bom`)}
+                  className="text-xs text-sky-600 hover:text-sky-800 hover:underline font-medium">
+                  View
+                </button>
+              </div>
             )
             if (r.bom_status === 'DRAFT') return (
               <button onClick={() => navigate(`/products/${r.id}/bom`)}
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors">
-                <FileText size={12} /> กรอก BOM
+                <FileText size={12} /> กรอก BOM ▶
               </button>
             )
             return (
               <button onClick={() => navigate(`/products/${r.id}/bom`)}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 text-gray-500 border border-dashed border-gray-300 rounded-lg text-xs font-medium hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300 transition-colors">
-                <AlertCircle size={12} /> ยังไม่มี BOM
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 text-gray-400 border border-dashed border-gray-200 rounded-lg text-xs font-medium hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-colors">
+                <Plus size={12} /> สร้าง BOM
               </button>
             )
           }},
@@ -170,7 +175,7 @@ export default function ProductsPage() {
             <Select required value={form.category_id}
               onChange={e => setForm(f => ({ ...f, category_id: +e.target.value, type_id: 0, model_id: 0 }))}>
               <option value={0} disabled>Select</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {categories.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
             </Select>
           </div>
           <div>
