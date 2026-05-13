@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock, AlertCircle } from 'lucide-react'
+import { Plus, ArrowLeft, CheckCircle, Copy, Trash2, ChevronDown, ChevronUp, Pencil, Lock, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { api } from '../../api/client'
 import { FormDialog } from '../../components/ui/FormDialog'
 import { Input, Label, Select } from '../../components/ui/Input'
@@ -71,6 +71,14 @@ export default function BomBuilderPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [activating, setActivating] = useState(false)
+  const [showSaved, setShowSaved] = useState(false)
+  const [savedTimer, setSavedTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+
+  const triggerSaved = () => {
+    setShowSaved(true)
+    if (savedTimer) clearTimeout(savedTimer)
+    setSavedTimer(setTimeout(() => setShowSaved(false), 2500))
+  }
 
   const matMap = useMemo(() => Object.fromEntries(materials.map(m => [m.id, m])), [materials])
   const groupMap = useMemo(() => Object.fromEntries(matGroups.map(g => [g.id, g])), [matGroups])
@@ -153,7 +161,7 @@ export default function BomBuilderPage() {
       if (uphForm.qty_base) { payload.qty_base = parseFloat(uphForm.qty_base); if (uphForm.qty_width_step) payload.qty_width_step = parseFloat(uphForm.qty_width_step); if (uphForm.qty_step_increment) payload.qty_step_increment = parseFloat(uphForm.qty_step_increment) }
       else if (uphForm.quantity_fixed) payload.quantity_fixed = parseFloat(uphForm.quantity_fixed)
       editingUph ? await api.put(`/products/bom/lines/${editingUph.id}`, payload) : await api.post(`/products/bom/versions/${bom!.version.id}/lines`, payload)
-      setUphOpen(false); await loadBomVersionById(bom!.version.id)
+      setUphOpen(false); await loadBomVersionById(bom!.version.id); triggerSaved()
     } catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
@@ -162,14 +170,16 @@ export default function BomBuilderPage() {
   const openEditMat = (line: BomLine) => { setEditingMat(line); setMatEditForm({ quantity_fixed: line.quantity_fixed ?? '', unit: line.unit ?? '', note: line.note ?? '' }); setError(''); setMatEditOpen(true) }
   const handleMatEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
-    try { await api.put(`/products/bom/lines/${editingMat!.id}`, { quantity_fixed: parseFloat(matEditForm.quantity_fixed), unit: matEditForm.unit || null, note: matEditForm.note || null }); setMatEditOpen(false); await loadBomVersionById(bom!.version.id) }
+    try { await api.put(`/products/bom/lines/${editingMat!.id}`, { quantity_fixed: parseFloat(matEditForm.quantity_fixed), unit: matEditForm.unit || null, note: matEditForm.note || null }); setMatEditOpen(false); await loadBomVersionById(bom!.version.id); triggerSaved() }
     catch (err: unknown) { setError((err as Error).message) }
     finally { setSaving(false) }
   }
 
   const handleDeleteLine = async (line: BomLine) => {
     if (!confirm('Delete this BOM line?')) return
-    await api.delete(`/products/bom/lines/${line.id}`); await loadBomVersionById(bom!.version.id)
+    await api.delete(`/products/bom/lines/${line.id}`)
+    await loadBomVersionById(bom!.version.id)
+    triggerSaved()
   }
 
   const handleActivate = async () => {
@@ -211,7 +221,7 @@ export default function BomBuilderPage() {
     await loadBomVersionById(bom!.version.id)
   }
 
-  const onBulkSuccess = () => loadBomVersionById(bom!.version.id)
+  const onBulkSuccess = () => { loadBomVersionById(bom!.version.id); triggerSaved() }
 
   if (loading) return <div className="flex items-center justify-center h-48 text-gray-400">Loading...</div>
 
@@ -349,7 +359,14 @@ export default function BomBuilderPage() {
       {bom && (
         <>
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium text-gray-700">BOM Lines <span className="text-gray-400 font-normal">({sortedLines.length})</span></p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm font-medium text-gray-700">BOM Lines <span className="text-gray-400 font-normal">({sortedLines.length})</span></p>
+              {isDraft && (
+                <span className={`flex items-center gap-1 text-xs transition-all duration-500 ${showSaved ? 'opacity-100 text-green-600' : 'opacity-0'}`}>
+                  <CheckCircle2 size={12} /> Draft saved
+                </span>
+              )}
+            </div>
             {isDraft && (
               <div className="flex gap-2">
                 <button onClick={() => setBulkOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-sky-700 text-white rounded-lg hover:bg-sky-800"><Plus size={14} /> Materials</button>
@@ -357,6 +374,7 @@ export default function BomBuilderPage() {
               </div>
             )}
           </div>
+
 
           {/* Validate hints for DRAFT */}
           {isDraft && (!hasMaterial || !hasUpholster) && (
