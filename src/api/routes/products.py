@@ -40,7 +40,8 @@ async def list_products(
             exists(sa_select(BV.id).where(BV.product_id == Product.id, BV.status == "ACTIVE"))
         )
     products = await product_service.get_all(db, active_only=not include_inactive, filters=filters)
-    # Annotate each product with its BOM status in one bulk query
+    # Build bom_status map in one bulk query then construct response objects explicitly
+    bom_map: dict[int, int] = {}
     if products:
         ids = [p.id for p in products]
         rows = await db.execute(
@@ -50,10 +51,13 @@ async def list_products(
             ).where(BV.product_id.in_(ids)).group_by(BV.product_id)
         )
         bom_map = {r.product_id: r.rank for r in rows}
-        for p in products:
-            rank = bom_map.get(p.id, 0)
-            p.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
-    return products
+    result = []
+    for p in products:
+        rank = bom_map.get(p.id, 0)
+        resp = ProductResponse.model_validate(p)
+        resp.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
+        result.append(resp)
+    return result
 
 
 @router.post("", response_model=ProductResponse, status_code=201)
@@ -72,8 +76,9 @@ async def get_product(id: int, db: AsyncSession = Depends(get_db)):
         .where(BV.product_id == id)
     )
     rank = row.scalar() or 0
-    obj.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
-    return obj
+    resp = ProductResponse.model_validate(obj)
+    resp.bom_status = "ACTIVE" if rank >= 2 else "DRAFT" if rank >= 1 else "NONE"
+    return resp
 
 
 @router.put("/{id}", response_model=ProductResponse)
