@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, FileText, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Plus, FileText, CheckCircle2, AlertCircle, Layers } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import { DataTable } from '../../components/ui/DataTable'
@@ -161,6 +161,11 @@ export default function ProductsPage() {
               </button>
             )
           }},
+          { key: 'variants', header: 'Variants', width: '90px', render: r => (
+            r.bom_status === 'ACTIVE'
+              ? <button onClick={() => navigate(`/products/${r.id}/variants`)} className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-xs font-medium"><Layers size={13} /> SKUs</button>
+              : <span className="text-xs text-gray-300">—</span>
+          )},
           { key: 'status',    header: 'Status',      width: '90px',  render: r => <TagBadge label={r.status} color={STATUS_COLORS[r.status] ?? 'gray'} /> },
         ]}
         data={filteredData} loading={loading} onEdit={openEdit} onDelete={handleDelete}

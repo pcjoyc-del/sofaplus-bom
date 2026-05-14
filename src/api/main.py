@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
-from .routes import health, categories, types, product_models, material_groups, materials, upholster
+from .routes import health, categories, types, product_models, material_groups, materials, upholster, products, variants
 
 settings = get_settings()
 
@@ -29,6 +29,8 @@ app.include_router(product_models.router, prefix="/api")
 app.include_router(material_groups.router, prefix="/api")
 app.include_router(materials.router, prefix="/api")
 app.include_router(upholster.router, prefix="/api")
+app.include_router(products.router, prefix="/api")
+app.include_router(variants.router, prefix="/api")
 
 
 @app.get("/")
