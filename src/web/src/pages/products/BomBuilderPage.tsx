@@ -148,6 +148,9 @@ export default function BomBuilderPage() {
   const canActivate  = hasMaterial && hasUpholster
   const activateHint = !hasMaterial ? 'ต้องมี Material line ก่อน' : !hasUpholster ? 'ต้องมี Upholster Placeholder ก่อน' : ''
 
+  // ข้อ 1: ถ้ามี Section "ทั้งหมด" แล้ว ห้ามเพิ่ม Upholster อื่นอีก
+  const hasAllSection = upholsterLines.some(l => l.section === 'ทั้งหมด')
+
   // ── Upholster handlers ─────────────────────────────────────────────────────
   const openAddUph = () => { setEditingUph(null); setUphForm({ ...UPH_EMPTY, line_order: sortedLines.length + 1 }); setError(''); setUphOpen(true) }
   const openEditUph = (line: BomLine) => {
@@ -157,6 +160,11 @@ export default function BomBuilderPage() {
   }
   const handleUphSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setError('')
+    // ข้อ 4: ต้องกรอกปริมาณก่อน save
+    if (!uphForm.qty_base && !uphForm.quantity_fixed) {
+      setError('กรุณากรอก Fixed Qty หรือ Linear Step Formula (Base qty)')
+      setSaving(false); return
+    }
     try {
       const payload: Record<string, unknown> = { line_type: 'UPHOLSTER_PLACEHOLDER', line_order: uphForm.line_order, section: uphForm.section, upholster_type: uphForm.upholster_type, unit: uphForm.unit || null, note: uphForm.note || null }
       if (uphForm.qty_base) { payload.qty_base = parseFloat(uphForm.qty_base); if (uphForm.qty_width_step) payload.qty_width_step = parseFloat(uphForm.qty_width_step); if (uphForm.qty_step_increment) payload.qty_step_increment = parseFloat(uphForm.qty_step_increment) }
@@ -389,7 +397,17 @@ export default function BomBuilderPage() {
             {isDraft && (
               <div className="flex gap-2">
                 <button onClick={() => setBulkOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-sky-700 text-white rounded-lg hover:bg-sky-800"><Plus size={14} /> Materials</button>
-                <button onClick={openAddUph} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600"><Plus size={14} /> Upholster</button>
+                <div className="relative group">
+                  <button onClick={openAddUph} disabled={hasAllSection}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                    <Plus size={14} /> Upholster
+                  </button>
+                  {hasAllSection && (
+                    <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-10">
+                      มี Section "ทั้งหมด" อยู่แล้ว — ไม่สามารถเพิ่ม Section อื่นได้
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

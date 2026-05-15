@@ -20,8 +20,9 @@ interface PreviewItem {
   upholster_color_id: number; sku: string
   source_name: string; collection_code: string; color_code: string; already_exists: boolean
 }
+interface BomLine { line_type: string; upholster_type: string | null }
 
-const MATERIAL_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
+const ALL_MATERIAL_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
 
 function fmt(n: string | null | undefined) {
   if (!n) return '—'
@@ -39,6 +40,7 @@ export default function VariantsPage() {
   const [allCollections, setAllCollections] = useState<Collection[]>([])
   const [allColors, setAllColors] = useState<Color[]>([])
   const [loading, setLoading] = useState(true)
+  const [bomLines, setBomLines] = useState<BomLine[]>([])
 
   // Dialog state
   const [open, setOpen] = useState(false)
@@ -50,6 +52,15 @@ export default function VariantsPage() {
   const [width, setWidth] = useState('')
   const [preview, setPreview] = useState<PreviewItem[] | null>(null)
   const [previewing, setPreviewing] = useState(false)
+
+  // ข้อ 3: ดึง upholster types จาก BOM — แสดง tab เฉพาะประเภทที่ใช้จริง
+  const allowedMaterialTypes = useMemo(() => {
+    const types = bomLines
+      .filter(l => l.line_type === 'UPHOLSTER_PLACEHOLDER' && l.upholster_type)
+      .map(l => l.upholster_type as string)
+    const unique = [...new Set(types)]
+    return unique.length > 0 ? unique : ALL_MATERIAL_TYPES
+  }, [bomLines])
 
   // Build tree: sources filtered by material_type → collections → colors
   const tree = useMemo(() => {
@@ -93,11 +104,14 @@ export default function VariantsPage() {
       api.get<Source[]>('/upholster/sources').then(setSources),
       api.get<Collection[]>('/upholster/collections').then(setAllCollections),
       api.get<Color[]>('/upholster/colors').then(setAllColors),
+      api.get<{lines: BomLine[]}>(`/products/${productId}/bom`)
+        .then(d => setBomLines(d.lines ?? []))
+        .catch(() => setBomLines([])),
     ])
   }, [productId])
 
   const openDialog = () => {
-    setSelMaterialType('ผ้า'); setSelColorIds(new Set())
+    setSelMaterialType(allowedMaterialTypes[0] ?? 'ผ้า'); setSelColorIds(new Set())
     setPrice(''); setWidth(''); setPreview(null); setError(''); setOpen(true)
   }
 
@@ -239,7 +253,7 @@ export default function VariantsPage() {
         <div>
           <Label required>ประเภทวัสดุหุ้ม</Label>
           <div className="flex gap-2 mt-1">
-            {MATERIAL_TYPES.map(t => (
+            {allowedMaterialTypes.map(t => (
               <button key={t} type="button"
                 onClick={() => { setSelMaterialType(t); setSelColorIds(new Set()); setPreview(null) }}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
