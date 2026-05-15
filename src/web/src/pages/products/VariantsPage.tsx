@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, Trash2, AlertCircle, FileText } from 'lucide-react'
 import { api } from '../../api/client'
 import { FormDialog } from '../../components/ui/FormDialog'
-import { Input, Label, Select } from '../../components/ui/Input'
+import { Input, Label } from '../../components/ui/Input'
 import { TagBadge } from '../../components/ui/Badge'
 
 interface Product { id: number; display_name: string | null; code: string; bom_status: string }
@@ -13,14 +13,15 @@ interface Variant {
   source_code: string | null; source_name: string | null
   collection_code: string | null; color_code: string | null
 }
-interface Source { id: number; code: string; name: string; is_active: boolean }
+interface Source { id: number; code: string; name: string; material_type: string; is_active: boolean }
 interface Collection { id: number; source_id: number; code: string; is_active: boolean }
 interface Color { id: number; collection_id: number; code: string; is_active: boolean }
 interface PreviewItem {
   upholster_color_id: number; sku: string
-  source_name: string; collection_code: string; color_code: string
-  already_exists: boolean
+  source_name: string; collection_code: string; color_code: string; already_exists: boolean
 }
+
+const MATERIAL_TYPES = ['ผ้า', 'หนัง', 'หนังเทียม']
 
 function fmt(n: string | null | undefined) {
   if (!n) return '—'
@@ -43,16 +44,37 @@ export default function VariantsPage() {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [selSource, setSelSource] = useState(0)
-  const [selCollection, setSelCollection] = useState(0)
+  const [selMaterialType, setSelMaterialType] = useState('ผ้า')
   const [selColorIds, setSelColorIds] = useState<Set<number>>(new Set())
   const [price, setPrice] = useState('')
   const [width, setWidth] = useState('')
   const [preview, setPreview] = useState<PreviewItem[] | null>(null)
   const [previewing, setPreviewing] = useState(false)
 
-  const collections = allCollections.filter(c => c.source_id === selSource && c.is_active)
-  const colors = allColors.filter(c => c.collection_id === selCollection && c.is_active)
+  // Build tree: sources filtered by material_type → collections → colors
+  const tree = useMemo(() => {
+    const filteredSources = sources.filter(s => s.is_active && s.material_type === selMaterialType)
+    return filteredSources.map(src => {
+      const colls = allCollections.filter(c => c.source_id === src.id && c.is_active)
+      return {
+        source: src,
+        collections: colls.map(coll => ({
+          collection: coll,
+          colors: allColors.filter(c => c.collection_id === coll.id && c.is_active),
+        })),
+      }
+    })
+  }, [sources, allCollections, allColors, selMaterialType])
+
+  // All color ids in current tree
+  const allTreeColorIds = useMemo(
+    () => tree.flatMap(s => s.collections.flatMap(c => c.colors.map(cl => cl.id))),
+    [tree]
+  )
+
+  // Source-level color ids
+  const sourceColorIds = (srcId: number) =>
+    tree.find(s => s.source.id === srcId)?.collections.flatMap(c => c.colors.map(cl => cl.id)) ?? []
 
   const load = async () => {
     setLoading(true)
@@ -75,16 +97,29 @@ export default function VariantsPage() {
   }, [productId])
 
   const openDialog = () => {
-    setSelSource(0); setSelCollection(0); setSelColorIds(new Set())
+    setSelMaterialType('ผ้า'); setSelColorIds(new Set())
     setPrice(''); setWidth(''); setPreview(null); setError(''); setOpen(true)
   }
 
-  const toggleColor = (id: number) => {
+  const toggleColor = (colorId: number) => {
+    setSelColorIds(prev => { const n = new Set(prev); n.has(colorId) ? n.delete(colorId) : n.add(colorId); return n })
+    setPreview(null)
+  }
+
+  const toggleSource = (srcId: number) => {
+    const ids = sourceColorIds(srcId)
+    const allSelected = ids.every(id => selColorIds.has(id))
     setSelColorIds(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
+      const n = new Set(prev)
+      allSelected ? ids.forEach(id => n.delete(id)) : ids.forEach(id => n.add(id))
+      return n
     })
+    setPreview(null)
+  }
+
+  const toggleAll = () => {
+    const allSelected = allTreeColorIds.every(id => selColorIds.has(id))
+    setSelColorIds(allSelected ? new Set() : new Set(allTreeColorIds))
     setPreview(null)
   }
 
@@ -92,10 +127,7 @@ export default function VariantsPage() {
     if (selColorIds.size === 0) { setError('เลือก Color อย่างน้อย 1 รายการ'); return }
     setPreviewing(true); setError('')
     try {
-      const items = await api.post<PreviewItem[]>(
-        `/products/${productId}/variants/preview`,
-        { color_ids: [...selColorIds] }
-      )
+      const items = await api.post<PreviewItem[]>(`/products/${productId}/variants/preview`, { color_ids: [...selColorIds] })
       setPreview(items)
     } catch (e: unknown) { setError((e as Error).message) }
     finally { setPreviewing(false) }
@@ -103,7 +135,7 @@ export default function VariantsPage() {
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!preview) { setError('กด Preview ก่อนครับ'); return }
+    if (!preview) { await handlePreview(); return }
     const newItems = preview.filter(p => !p.already_exists)
     if (newItems.length === 0) { setError('ทุก Variant ที่เลือกมีอยู่แล้ว'); return }
     setSaving(true); setError('')
@@ -129,7 +161,6 @@ export default function VariantsPage() {
 
   return (
     <div className="max-w-5xl">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-0.5">
         <button onClick={() => navigate('/products')} className="p-1.5 text-gray-400 hover:text-gray-600 rounded"><ArrowLeft size={16} /></button>
         <h1 className="text-lg font-semibold text-gray-900">Variants</h1>
@@ -139,15 +170,14 @@ export default function VariantsPage() {
         <p className="text-xs text-gray-400 mt-0.5">{variants.length} SKU</p>
       </div>
 
-      {/* No Active BOM warning */}
       {!hasActiveBom && (
         <div className="flex items-center gap-2 mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
           <AlertCircle size={15} />
-          Product นี้ยังไม่มี Active BOM — <button onClick={() => navigate(`/products/${productId}/bom`)} className="font-medium underline">สร้าง BOM ก่อน</button>
+          Product นี้ยังไม่มี Active BOM —
+          <button onClick={() => navigate(`/products/${productId}/bom`)} className="font-medium underline">สร้าง BOM ก่อน</button>
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex justify-end mb-3">
         {hasActiveBom && (
           <button onClick={openDialog} className="flex items-center gap-2 px-4 py-2 bg-sky-700 text-white text-sm rounded-lg hover:bg-sky-800">
@@ -187,7 +217,9 @@ export default function VariantsPage() {
                         className="flex items-center gap-1 px-2 py-1 text-xs text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded transition-colors">
                         <FileText size={12} /> View BOM
                       </button>
-                      <button onClick={() => handleDelete(v)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><Trash2 size={13} /></button>
+                      <button onClick={() => handleDelete(v)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -197,46 +229,87 @@ export default function VariantsPage() {
         </div>
       )}
 
-      {/* Bulk Generator Dialog */}
+      {/* Generate Variants Dialog */}
       <FormDialog open={open} onClose={() => setOpen(false)} title="Generate Variants"
         onSubmit={handleGenerate} saving={saving} error={error}
-        submitLabel={preview ? `Confirm สร้าง ${preview.filter(p => !p.already_exists).length} Variants` : 'Preview ก่อน'}
+        submitLabel={preview ? `Confirm สร้าง ${preview.filter(p => !p.already_exists).length} Variants` : `Preview ${selColorIds.size} Variants`}
         width="max-w-2xl">
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label required>Source</Label>
-            <Select value={selSource} onChange={e => { setSelSource(+e.target.value); setSelCollection(0); setSelColorIds(new Set()); setPreview(null) }}>
-              <option value={0} disabled>เลือก Source</option>
-              {sources.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </div>
-          <div>
-            <Label required>Collection</Label>
-            <Select value={selCollection} onChange={e => { setSelCollection(+e.target.value); setSelColorIds(new Set()); setPreview(null) }} disabled={!selSource}>
-              <option value={0} disabled>เลือก Collection</option>
-              {collections.map(c => <option key={c.id} value={c.id}>{c.code}</option>)}
-            </Select>
+        {/* Step 1: Material Type */}
+        <div>
+          <Label required>ประเภทวัสดุหุ้ม</Label>
+          <div className="flex gap-2 mt-1">
+            {MATERIAL_TYPES.map(t => (
+              <button key={t} type="button"
+                onClick={() => { setSelMaterialType(t); setSelColorIds(new Set()); setPreview(null) }}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  selMaterialType === t
+                    ? 'bg-sky-700 text-white border-sky-700'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-sky-300 hover:text-sky-600'
+                }`}>
+                {t}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Color checkboxes */}
-        {selCollection > 0 && (
-          <div>
+        {/* Step 2: Color Tree */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
             <Label required>Colors <span className="text-gray-400 font-normal">({selColorIds.size} เลือก)</span></Label>
-            <div className="border border-gray-200 rounded-lg divide-y divide-gray-50 max-h-40 overflow-y-auto">
-              {colors.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-gray-400">ไม่มี Color ใน Collection นี้</p>
-              ) : colors.map(c => (
-                <label key={c.id} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
-                  <input type="checkbox" checked={selColorIds.has(c.id)} onChange={() => toggleColor(c.id)} className="rounded" />
-                  <span className="text-sm font-mono text-gray-700">{c.code}</span>
-                </label>
-              ))}
-            </div>
+            {allTreeColorIds.length > 0 && (
+              <button type="button" onClick={toggleAll}
+                className="text-xs text-sky-600 hover:text-sky-800 font-medium">
+                {allTreeColorIds.every(id => selColorIds.has(id)) ? 'ยกเลิกทั้งหมด' : `เลือกทั้งหมด (${allTreeColorIds.length})`}
+              </button>
+            )}
           </div>
-        )}
 
+          {tree.length === 0 ? (
+            <p className="text-xs text-gray-400 py-3 text-center border border-dashed border-gray-200 rounded-lg">
+              ไม่มี Source ประเภท {selMaterialType}
+            </p>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
+              {tree.map(({ source, collections }) => {
+                const srcIds = collections.flatMap(c => c.colors.map(cl => cl.id))
+                const allSrcSelected = srcIds.length > 0 && srcIds.every(id => selColorIds.has(id))
+                return (
+                  <div key={source.id} className="border-b border-gray-100 last:border-0">
+                    {/* Source header */}
+                    <div className="flex items-center justify-between px-3 py-2 bg-gray-50">
+                      <span className="text-xs font-semibold text-gray-700">{source.name}</span>
+                      <button type="button" onClick={() => toggleSource(source.id)}
+                        className="text-xs text-sky-600 hover:text-sky-800">
+                        {allSrcSelected ? 'ยกเลิก' : `เลือกทั้งหมด (${srcIds.length})`}
+                      </button>
+                    </div>
+                    {/* Collections + Colors */}
+                    {collections.map(({ collection, colors }) => (
+                      <div key={collection.id}>
+                        {colors.length > 0 && (
+                          <div className="px-3 pt-1.5 pb-0.5">
+                            <span className="text-xs text-gray-400 font-mono">{collection.code}</span>
+                          </div>
+                        )}
+                        {colors.map(color => (
+                          <label key={color.id}
+                            className="flex items-center gap-2 px-5 py-1.5 hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" checked={selColorIds.has(color.id)}
+                              onChange={() => toggleColor(color.id)} className="rounded" />
+                            <span className="text-sm font-mono text-gray-700">{color.code}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Price + Width */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Selling Price (บาท)</Label>
@@ -248,21 +321,14 @@ export default function VariantsPage() {
           </div>
         </div>
 
-        {/* Preview button */}
-        {selColorIds.size > 0 && !preview && (
-          <button type="button" onClick={handlePreview} disabled={previewing}
-            className="w-full py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50">
-            {previewing ? 'Loading...' : `Preview ${selColorIds.size} Variants`}
-          </button>
-        )}
-
         {/* Preview table */}
         {preview && (
           <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500">
-              Preview — {preview.filter(p => !p.already_exists).length} ใหม่ / {preview.filter(p => p.already_exists).length} มีอยู่แล้ว
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 flex justify-between">
+              <span>Preview</span>
+              <span>{preview.filter(p => !p.already_exists).length} ใหม่ / {preview.filter(p => p.already_exists).length} มีอยู่แล้ว</span>
             </div>
-            <div className="divide-y divide-gray-50 max-h-48 overflow-y-auto">
+            <div className="divide-y divide-gray-50 max-h-44 overflow-y-auto">
               {preview.map(item => (
                 <div key={item.upholster_color_id} className={`flex items-center justify-between px-3 py-2 ${item.already_exists ? 'opacity-40' : ''}`}>
                   <span className="font-mono text-xs text-gray-800">{item.sku}</span>
