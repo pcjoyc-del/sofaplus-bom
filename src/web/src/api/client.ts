@@ -6,8 +6,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (res.status === 204) return null as T
-  const body = await res.json()
-  if (!res.ok) throw new Error(body.detail ?? `Error ${res.status}`)
+  const isJson = res.headers.get('content-type')?.includes('application/json')
+  const body = isJson ? await res.json() : await res.text()
+  if (!res.ok) {
+    const msg = isJson ? (body?.detail ?? `Error ${res.status}`) : `Server error ${res.status}`
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+  }
   return body as T
 }
 
