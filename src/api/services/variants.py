@@ -2,6 +2,7 @@ import re
 from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert as sa_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
@@ -132,9 +133,9 @@ async def preview_bulk(db: AsyncSession, product_id: int, color_ids: list[int]) 
     # Existing variants for this product
     existing = await db.execute(
         select(ProductVariant.upholster_color_id)
-        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)
+        .where(ProductVariant.product_id == product_id)  # ตรวจทุกตัว รวม is_active=False
     )
-    existing_color_ids = {r.upholster_color_id for r in existing}
+    existing_color_ids = set(existing.scalars().all())
 
     items = []
     for color_id in color_ids:
@@ -170,7 +171,7 @@ async def bulk_create_variants(
     # ตรวจ existing ก่อน
     existing_r = await db.execute(
         select(ProductVariant.upholster_color_id)
-        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)
+        .where(ProductVariant.product_id == product_id)  # ตรวจทุกตัว
     )
     existing_ids = set(existing_r.scalars().all())
 
@@ -191,8 +192,8 @@ async def bulk_create_variants(
     if not rows:
         return []
 
-    # Core-level INSERT ข้าม ORM relationship management (ป้องกัน MissingGreenlet)
-    await db.execute(sa_insert(ProductVariant.__table__).values(rows))
+    # Core INSERT with ON CONFLICT DO NOTHING — safe ต่อ duplicate ทุกกรณี
+    await db.execute(pg_insert(ProductVariant.__table__).values(rows).on_conflict_do_nothing())
     await db.commit()
 
     # Fetch inserted variants by SKU
