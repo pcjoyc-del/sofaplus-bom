@@ -1,7 +1,7 @@
 import re
 from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, insert as sa_insert
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
@@ -101,20 +101,21 @@ async def create_variant(db: AsyncSession, product_id: int, obj_in: dict) -> Var
     sku = build_sku(cat.code, ptype.code, model.code, src.code, coll.code, color.code)
 
     try:
-        v = ProductVariant(
-            product_id=product_id,
-            sku=sku,
+        await db.execute(sa_insert(ProductVariant.__table__).values(
+            product_id=product_id, sku=sku,
             upholster_color_id=color_id,
             width=obj_in.get("width"),
             selling_price=obj_in.get("selling_price"),
-        )
-        db.add(v)
+            status="ACTIVE", is_active=True,
+        ))
         await db.commit()
-        await db.refresh(v)
-        return await _enrich(db, v)
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f"Variant {sku} มีอยู่แล้ว")
+
+    result = await db.execute(select(ProductVariant).where(ProductVariant.sku == sku))
+    v = result.scalar_one()
+    return await _enrich(db, v)
 
 
 # ── Preview Bulk ───────────────────────────────────────────────────────────────
@@ -166,29 +167,40 @@ async def bulk_create_variants(
     ptype = await db.get(ProductType,  product.type_id)
     model = await db.get(ProductModel, product.model_id)
 
-    created = []
-    skipped = []
+    # ตรวจ existing ก่อน
+    existing_r = await db.execute(
+        select(ProductVariant.upholster_color_id)
+        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)
+    )
+    existing_ids = set(existing_r.scalars().all())
+
+    # Build rows to insert
+    rows: list[dict] = []
     for color_id in color_ids:
+        if color_id in existing_ids:
+            continue
         color, coll, src = await _get_color_info(db, color_id)
         if not color or not coll or not src:
             continue
         sku = build_sku(cat.code, ptype.code, model.code, src.code, coll.code, color.code)
-        try:
-            v = ProductVariant(
-                product_id=product_id, sku=sku,
-                upholster_color_id=color_id,
-                width=width, selling_price=selling_price,
-            )
-            db.add(v)
-            await db.flush()
-            created.append(v)
-        except IntegrityError:
-            await db.rollback()
-            skipped.append(sku)
+        rows.append({"product_id": product_id, "sku": sku,
+                     "upholster_color_id": color_id,
+                     "width": width, "selling_price": selling_price,
+                     "status": "ACTIVE", "is_active": True})
 
+    if not rows:
+        return []
+
+    # Core-level INSERT ข้าม ORM relationship management (ป้องกัน MissingGreenlet)
+    await db.execute(sa_insert(ProductVariant.__table__).values(rows))
     await db.commit()
-    for v in created:
-        await db.refresh(v)
+
+    # Fetch inserted variants by SKU
+    new_skus = [r["sku"] for r in rows]
+    result = await db.execute(
+        select(ProductVariant).where(ProductVariant.sku.in_(new_skus))
+    )
+    created = list(result.scalars().all())
     return [await _enrich(db, v) for v in created]
 
 
