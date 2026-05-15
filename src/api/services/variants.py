@@ -1,7 +1,7 @@
 import re
 from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert as sa_insert
+from sqlalchemy import select, insert as sa_insert, update as sa_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
@@ -133,7 +133,7 @@ async def preview_bulk(db: AsyncSession, product_id: int, color_ids: list[int]) 
     # Existing variants for this product
     existing = await db.execute(
         select(ProductVariant.upholster_color_id)
-        .where(ProductVariant.product_id == product_id)  # ตรวจทุกตัว รวม is_active=False
+        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)
     )
     existing_color_ids = set(existing.scalars().all())
 
@@ -169,37 +169,62 @@ async def bulk_create_variants(
     model = await db.get(ProductModel, product.model_id)
 
     # ตรวจ existing ก่อน
-    existing_r = await db.execute(
+    # ACTIVE variants → truly exists, skip
+    active_r = await db.execute(
         select(ProductVariant.upholster_color_id)
-        .where(ProductVariant.product_id == product_id)  # ตรวจทุกตัว
+        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == True)
     )
-    existing_ids = set(existing_r.scalars().all())
+    active_ids = set(active_r.scalars().all())
 
-    # Build rows to insert
-    rows: list[dict] = []
+    # INACTIVE variants → reactivate
+    inactive_r = await db.execute(
+        select(ProductVariant.upholster_color_id)
+        .where(ProductVariant.product_id == product_id, ProductVariant.is_active == False)
+    )
+    inactive_ids = set(inactive_r.scalars().all())
+
+    rows_to_insert: list[dict] = []
+    color_ids_to_reactivate: list[int] = []
+
     for color_id in color_ids:
-        if color_id in existing_ids:
-            continue
+        if color_id in active_ids:
+            continue  # มีอยู่แล้ว active → ข้าม
         color, coll, src = await _get_color_info(db, color_id)
         if not color or not coll or not src:
             continue
         sku = build_sku(cat.code, ptype.code, model.code, src.code, coll.code, color.code)
-        rows.append({"product_id": product_id, "sku": sku,
-                     "upholster_color_id": color_id,
-                     "width": width, "selling_price": selling_price,
-                     "status": "ACTIVE", "is_active": True})
+        if color_id in inactive_ids:
+            color_ids_to_reactivate.append(color_id)
+        else:
+            rows_to_insert.append({"product_id": product_id, "sku": sku,
+                                   "upholster_color_id": color_id,
+                                   "width": width, "selling_price": selling_price,
+                                   "status": "ACTIVE", "is_active": True})
 
-    if not rows:
-        return []
+    # Reactivate soft-deleted variants
+    if color_ids_to_reactivate:
+        await db.execute(
+            sa_update(ProductVariant.__table__)
+            .where(ProductVariant.product_id == product_id,
+                   ProductVariant.upholster_color_id.in_(color_ids_to_reactivate))
+            .values(is_active=True, selling_price=selling_price, width=width)
+        )
 
-    # Core INSERT with ON CONFLICT DO NOTHING — safe ต่อ duplicate ทุกกรณี
-    await db.execute(pg_insert(ProductVariant.__table__).values(rows).on_conflict_do_nothing())
+    # INSERT new variants
+    if rows_to_insert:
+        await db.execute(pg_insert(ProductVariant.__table__).values(rows_to_insert).on_conflict_do_nothing())
+
     await db.commit()
 
-    # Fetch inserted variants by SKU
-    new_skus = [r["sku"] for r in rows]
+    # Fetch all created/reactivated variants
+    all_color_ids = [r["upholster_color_id"] for r in rows_to_insert] + color_ids_to_reactivate
+    if not all_color_ids:
+        return []
     result = await db.execute(
-        select(ProductVariant).where(ProductVariant.sku.in_(new_skus))
+        select(ProductVariant)
+        .where(ProductVariant.product_id == product_id,
+               ProductVariant.upholster_color_id.in_(all_color_ids),
+               ProductVariant.is_active == True)
     )
     created = list(result.scalars().all())
     return [await _enrich(db, v) for v in created]
