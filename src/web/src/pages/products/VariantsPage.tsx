@@ -135,7 +135,7 @@ export default function VariantsPage() {
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!preview) { await handlePreview(); return }
+    if (!preview) { setError('กด Preview ก่อนครับ'); return }
     const newItems = preview.filter(p => !p.already_exists)
     if (newItems.length === 0) { setError('ทุก Variant ที่เลือกมีอยู่แล้ว'); return }
     setSaving(true); setError('')
@@ -320,6 +320,14 @@ export default function VariantsPage() {
             <Input type="number" step="0.01" value={width} onChange={e => setWidth(e.target.value)} placeholder="200" />
           </div>
         </div>
+
+        {/* Preview button */}
+        {selColorIds.size > 0 && (
+          <button type="button" onClick={handlePreview} disabled={previewing}
+            className="w-full py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg disabled:opacity-50 transition-colors">
+            {previewing ? 'Loading...' : `Preview ${selColorIds.size} Variants ที่เลือก`}
+          </button>
+        )}
 
         {/* Preview table */}
         {preview && (
