@@ -3,11 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..schemas.variants import (
     VariantCreate, VariantUpdate, VariantBulkCreate,
-    VariantResponse, VariantPreviewItem,
+    VariantResponse, VariantPreviewItem, ResolvedBomResponse,
 )
 from ..services.variants import (
     list_variants, create_variant, preview_bulk,
-    bulk_create_variants, update_variant, delete_variant,
+    bulk_create_variants, update_variant, delete_variant, resolve_bom,
 )
 
 router = APIRouter(tags=["Variants"])
@@ -40,6 +40,11 @@ async def bulk_create_endpoint(product_id: int, data: VariantBulkCreate, db: Asy
 @router.put("/variants/{variant_id}", response_model=VariantResponse)
 async def update_variant_endpoint(variant_id: int, data: VariantUpdate, db: AsyncSession = Depends(get_db)):
     return await update_variant(db, variant_id, data.model_dump(exclude_none=True))
+
+
+@router.get("/variants/{variant_id}/resolved-bom", response_model=ResolvedBomResponse)
+async def get_resolved_bom(variant_id: int, db: AsyncSession = Depends(get_db)):
+    return await resolve_bom(db, variant_id)
 
 
 @router.delete("/variants/{variant_id}", status_code=204)

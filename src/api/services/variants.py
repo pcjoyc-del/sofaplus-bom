@@ -1,14 +1,16 @@
 import re
+from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
-from ..models.products import Product, BomVersion
-from ..models.variants import ProductVariant
+from ..models.products import Product, BomVersion, BomLine, OverheadRate
+from ..models.variants import ProductVariant, VariantBomOverride
 from ..models.master_data import Category, ProductType, ProductModel
-from ..models.upholster import UpholsterColor, UpholsterCollection, UpholsterSource
-from ..schemas.variants import VariantResponse, VariantPreviewItem
+from ..models.materials import Material, MaterialPrice
+from ..models.upholster import UpholsterColor, UpholsterCollection, UpholsterSource, UpholsterPrice
+from ..schemas.variants import VariantResponse, VariantPreviewItem, ResolvedBomLine, ResolvedBomResponse
 
 
 # ── SKU Generation ─────────────────────────────────────────────────────────────
@@ -202,6 +204,150 @@ async def update_variant(db: AsyncSession, variant_id: int, obj_in: dict) -> Var
     await db.commit()
     await db.refresh(v)
     return await _enrich(db, v)
+
+
+# ── Resolve BOM per SKU (FR-11) ───────────────────────────────────────────────
+
+async def resolve_bom(db: AsyncSession, variant_id: int) -> ResolvedBomResponse:
+    variant = await db.get(ProductVariant, variant_id)
+    if not variant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+
+    product = await db.get(Product, variant.product_id)
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+
+    # Get Active BOM
+    bom_r = await db.execute(
+        select(BomVersion).where(BomVersion.product_id == product.id, BomVersion.status == "ACTIVE").limit(1)
+    )
+    bom = bom_r.scalar_one_or_none()
+    if not bom:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Product ไม่มี Active BOM")
+
+    # Get BOM lines
+    lines_r = await db.execute(
+        select(BomLine).where(BomLine.bom_version_id == bom.id).order_by(BomLine.line_order)
+    )
+    lines = list(lines_r.scalars().all())
+
+    # Get variant overrides map (FR-10 — logic ready, UI Phase 2)
+    ov_r = await db.execute(
+        select(VariantBomOverride).where(VariantBomOverride.variant_id == variant_id)
+    )
+    overrides = {o.target_bom_line_id: o for o in ov_r.scalars().all()}
+
+    # Upholster info of this variant
+    color, coll, src = await _get_color_info(db, variant.upholster_color_id)
+
+    # Width: variant override หรือ standard
+    standard_w = float(product.standard_width) if product.standard_width else 0.0
+    variant_w  = float(variant.width) if variant.width else standard_w
+
+    resolved_lines = []
+    total = 0.0
+
+    for line in lines:
+        ov = overrides.get(line.id)
+
+        if line.line_type == "MATERIAL":
+            mat_id = (ov.override_material_id if ov and ov.override_material_id else line.material_id)
+            qty    = float(ov.override_quantity_fixed if ov and ov.override_quantity_fixed else line.quantity_fixed or 0)
+            mat    = await db.get(Material, mat_id) if mat_id else None
+
+            # ราคาปัจจุบัน
+            price_r = await db.execute(
+                select(MaterialPrice)
+                .where(MaterialPrice.material_id == mat_id, MaterialPrice.effective_date <= date.today())
+                .order_by(MaterialPrice.effective_date.desc()).limit(1)
+            )
+            mp = price_r.scalar_one_or_none()
+            unit_price = float(mp.price) if mp else None
+            line_cost  = round(unit_price * qty, 2) if unit_price and qty else None
+            if line_cost:
+                total += line_cost
+
+            resolved_lines.append(ResolvedBomLine(
+                bom_line_id=line.id, line_order=line.line_order,
+                line_type="MATERIAL",
+                material_id=mat_id,
+                material_name=mat.name if mat else None,
+                mat_id_code=mat.mat_id if mat else None,
+                unit=line.unit, quantity=qty,
+                unit_price=unit_price, line_cost=line_cost,
+                price_date=mp.effective_date if mp else None,
+                is_overridden=ov is not None,
+            ))
+
+        else:  # UPHOLSTER_PLACEHOLDER
+            # คำนวณ qty — Linear Step หรือ Fixed
+            if line.qty_base is not None and line.qty_width_step:
+                qty = float(line.qty_base) + (
+                    (variant_w - standard_w) / float(line.qty_width_step)
+                ) * float(line.qty_step_increment or 0)
+                qty_formula = True
+            else:
+                qty = float(line.quantity_fixed or 0)
+                qty_formula = False
+            qty = round(qty, 4)
+
+            # ราคาผ้าปัจจุบัน
+            uph_price_r = await db.execute(
+                select(UpholsterPrice)
+                .where(UpholsterPrice.color_id == variant.upholster_color_id,
+                       UpholsterPrice.effective_date <= date.today())
+                .order_by(UpholsterPrice.effective_date.desc()).limit(1)
+            )
+            up = uph_price_r.scalar_one_or_none()
+            unit_price = float(up.price) if up else None
+            line_cost  = round(unit_price * qty, 2) if unit_price and qty else None
+            if line_cost:
+                total += line_cost
+
+            resolved_lines.append(ResolvedBomLine(
+                bom_line_id=line.id, line_order=line.line_order,
+                line_type="UPHOLSTER",
+                section=line.section,
+                source_name=src.name if src else None,
+                collection_code=coll.code if coll else None,
+                color_code=color.code if color else None,
+                unit=line.unit or (src.default_unit if src else None),
+                quantity=qty, unit_price=unit_price, line_cost=line_cost,
+                price_date=up.effective_date if up else None,
+                qty_formula_used=qty_formula,
+            ))
+
+    # Overhead (same logic as BOM cost)
+    overhead_rate = overhead_cost = None
+    total_estimated = round(total, 2)
+    if total > 0:
+        for cat_id in [product.category_id, None]:
+            cond = OverheadRate.category_id == cat_id if cat_id is not None else OverheadRate.category_id.is_(None)
+            rate_r = await db.execute(
+                select(OverheadRate)
+                .where(OverheadRate.effective_date <= date.today(),
+                       OverheadRate.rate_type == "GENERAL_MATERIAL", cond)
+                .order_by(OverheadRate.effective_date.desc()).limit(1)
+            )
+            rate_obj = rate_r.scalar_one_or_none()
+            if rate_obj and rate_obj.percentage:
+                overhead_rate = float(rate_obj.percentage)
+                overhead_cost = round(total * overhead_rate / 100, 2)
+                total_estimated = round(total + overhead_cost, 2)
+                break
+
+    return ResolvedBomResponse(
+        variant_id=variant_id, sku=variant.sku,
+        product_name=product.display_name,
+        bom_number=bom.bom_number,
+        variant_width=variant_w if variant.width else None,
+        standard_width=standard_w,
+        lines=resolved_lines,
+        total_material_cost=round(total, 2),
+        overhead_rate=overhead_rate,
+        overhead_cost=overhead_cost,
+        total_estimated_cost=total_estimated,
+    )
 
 
 # ── Soft Delete ────────────────────────────────────────────────────────────────

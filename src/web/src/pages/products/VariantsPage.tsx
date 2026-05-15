@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, Trash2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, AlertCircle, FileText } from 'lucide-react'
 import { api } from '../../api/client'
 import { FormDialog } from '../../components/ui/FormDialog'
 import { Input, Label, Select } from '../../components/ui/Input'
@@ -182,7 +182,13 @@ export default function VariantsPage() {
                   <td className="px-4 py-3 font-mono text-gray-800">{v.selling_price ? `฿${fmt(v.selling_price)}` : '—'}</td>
                   <td className="px-4 py-3"><TagBadge label={v.status} color={v.status === 'ACTIVE' ? 'blue' : 'gray'} /></td>
                   <td className="px-4 py-3">
-                    <button onClick={() => handleDelete(v)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><Trash2 size={13} /></button>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => navigate(`/variants/${v.id}/bom`)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded transition-colors">
+                        <FileText size={12} /> View BOM
+                      </button>
+                      <button onClick={() => handleDelete(v)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"><Trash2 size={13} /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
