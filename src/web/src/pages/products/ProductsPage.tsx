@@ -275,7 +275,15 @@ export default function ProductsPage() {
                       <input type="checkbox" checked={copyToSelected.has(p.id)}
                         onChange={() => toggleCopyTarget(p.id)} className="rounded accent-violet-600" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-800 truncate">{p.display_name ?? p.code}</p>
+                        <p className="text-sm text-gray-800 truncate">
+                          {p.display_name ?? p.code}
+                          {(p.standard_width || p.standard_depth) && (
+                            <span className="ml-1.5 font-mono text-xs text-gray-400">
+                              {p.standard_width ? `W${parseFloat(p.standard_width).toFixed(0)}` : ''}
+                              {p.standard_depth ? ` × D${parseFloat(p.standard_depth).toFixed(0)}` : ''}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-gray-400">
                           {p.bom_status === 'ACTIVE' ? '⚠ มี Active BOM แล้ว — จะสร้าง Draft ใหม่ทับ'
                             : p.bom_status === 'DRAFT' ? 'มี Draft BOM อยู่ — จะเพิ่ม Draft ใหม่'
