@@ -9,9 +9,10 @@ interface Props {
   error?: string
   children: React.ReactNode
   width?: string
+  submitLabel?: string
 }
 
-export function FormDialog({ open, onClose, title, onSubmit, saving, error, children, width = 'max-w-md' }: Props) {
+export function FormDialog({ open, onClose, title, onSubmit, saving, error, children, width = 'max-w-md', submitLabel }: Props) {
   if (!open) return null
 
   return (
@@ -51,7 +52,7 @@ export function FormDialog({ open, onClose, title, onSubmit, saving, error, chil
               disabled={saving}
               className="px-4 py-2 text-sm bg-sky-700 text-white rounded-lg hover:bg-sky-800 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? 'Saving...' : (submitLabel ?? 'Save')}
             </button>
           </div>
         </form>

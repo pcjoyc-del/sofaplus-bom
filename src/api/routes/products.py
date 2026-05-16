@@ -6,6 +6,7 @@ from ..schemas.products import (
     BomVersionCreate, BomVersionResponse,
     BomLineCreate, BomLineUpdate, BomLineResponse,
     BomLineBulkCreate, BomFullResponse, BomCostResponse,
+    BomCopyToRequest, BomCopyToResponse, BomCopyToResult,
 )
 from ..services.products import (
     product_service, create_product, get_active_bom,
@@ -114,6 +115,48 @@ async def copy_bom(id: int, source_product_id: int, db: AsyncSession = Depends(g
     obj = await product_service.get(db, id)
     if not obj: raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
     return await copy_bom_from(db, target_product_id=id, source_product_id=source_product_id)
+
+
+@router.post("/{id}/bom/copy-to", response_model=BomCopyToResponse)
+async def copy_bom_to_many(id: int, data: BomCopyToRequest, db: AsyncSession = Depends(get_db)):
+    """Copy Active BOM ของ Product นี้ไปให้หลาย Products พร้อมกัน"""
+    source = await product_service.get(db, id)
+    if not source: raise HTTPException(status.HTTP_404_NOT_FOUND, "Source product not found")
+
+    results: list[BomCopyToResult] = []
+    for target_id in data.target_product_ids:
+        target = await product_service.get(db, target_id)
+        if not target:
+            results.append(BomCopyToResult(
+                product_id=target_id, product_name=None,
+                success=False, error="Product not found"
+            ))
+            continue
+        try:
+            new_bom = await copy_bom_from(db, target_product_id=target_id, source_product_id=id)
+            results.append(BomCopyToResult(
+                product_id=target_id,
+                product_name=target.display_name or target.code,
+                success=True,
+                bom_number=new_bom.bom_number,
+            ))
+        except HTTPException as e:
+            results.append(BomCopyToResult(
+                product_id=target_id,
+                product_name=target.display_name or target.code,
+                success=False,
+                error=str(e.detail),
+            ))
+        except Exception as e:
+            results.append(BomCopyToResult(
+                product_id=target_id,
+                product_name=target.display_name or target.code,
+                success=False,
+                error=str(e),
+            ))
+
+    copied = sum(1 for r in results if r.success)
+    return BomCopyToResponse(copied=copied, failed=len(results) - copied, results=results)
 
 
 @router.post("/bom/versions/{bom_id}/activate", response_model=BomVersionResponse)

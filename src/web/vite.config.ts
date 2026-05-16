@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // Proxy /api/* → FastAPI backend (หลีกเลี่ยง CORS ระหว่าง dev)
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       },
     },

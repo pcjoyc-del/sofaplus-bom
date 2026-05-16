@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, FileText, CheckCircle2, AlertCircle, Layers } from 'lucide-react'
+import { Plus, FileText, CheckCircle2, Layers, Copy, CheckCheck, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../api/client'
 import { DataTable } from '../../components/ui/DataTable'
@@ -16,6 +16,11 @@ interface Product {
   standard_bed_depth: string | null; status: string; is_active: boolean
   bom_status: 'NONE' | 'DRAFT' | 'ACTIVE'
 }
+interface CopyToResult {
+  product_id: number; product_name: string | null
+  success: boolean; bom_number: string | null; error: string | null
+}
+interface CopyToResponse { copied: number; failed: number; results: CopyToResult[] }
 
 const EMPTY = {
   category_id: 0, type_id: 0, model_id: 0,
@@ -49,6 +54,14 @@ export default function ProductsPage() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Copy TO state
+  const [copyToSource, setCopyToSource] = useState<Product | null>(null)
+  const [copyToOpen, setCopyToOpen] = useState(false)
+  const [copyToSelected, setCopyToSelected] = useState<Set<number>>(new Set())
+  const [copyToSaving, setCopyToSaving] = useState(false)
+  const [copyToError, setCopyToError] = useState('')
+  const [copyToResult, setCopyToResult] = useState<CopyToResponse | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -110,6 +123,37 @@ export default function ProductsPage() {
     await api.delete(`/products/${row.id}`); await load()
   }
 
+  // Copy TO handlers
+  const openCopyTo = (source: Product) => {
+    setCopyToSource(source)
+    setCopyToSelected(new Set())
+    setCopyToError('')
+    setCopyToResult(null)
+    setCopyToOpen(true)
+  }
+  const toggleCopyTarget = (id: number) => {
+    setCopyToSelected(prev => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+    setCopyToResult(null)
+  }
+  const handleCopyTo = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (copyToSelected.size === 0) { setCopyToError('เลือก Product ปลายทางอย่างน้อย 1 รายการ'); return }
+    setCopyToSaving(true); setCopyToError('')
+    try {
+      const res = await api.post<CopyToResponse>(
+        `/products/${copyToSource!.id}/bom/copy-to`,
+        { target_product_ids: [...copyToSelected] }
+      )
+      setCopyToResult(res)
+      await load()
+    } catch (e: unknown) { setCopyToError((e as Error).message) }
+    finally { setCopyToSaving(false) }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -166,11 +210,93 @@ export default function ProductsPage() {
               ? <button onClick={() => navigate(`/products/${r.id}/variants`)} className="flex items-center gap-1 text-sky-600 hover:text-sky-800 text-xs font-medium"><Layers size={13} /> SKUs</button>
               : <span className="text-xs text-gray-300">—</span>
           )},
+          { key: 'copy_to', header: '', width: '100px', render: r => (
+            r.bom_status === 'ACTIVE'
+              ? <button onClick={() => openCopyTo(r)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-violet-600 hover:text-violet-800 hover:bg-violet-50 rounded transition-colors font-medium">
+                  <Copy size={12} /> Copy TO
+                </button>
+              : null
+          )},
           { key: 'status',    header: 'Status',      width: '90px',  render: r => <TagBadge label={r.status} color={STATUS_COLORS[r.status] ?? 'gray'} /> },
         ]}
         data={filteredData} loading={loading} onEdit={openEdit} onDelete={handleDelete}
       />
 
+      {/* ── Copy TO Dialog ─────────────────────────────────────────── */}
+      <FormDialog
+        open={copyToOpen}
+        onClose={() => { setCopyToOpen(false); setCopyToResult(null) }}
+        title="Copy BOM ไปยัง Products อื่น"
+        onSubmit={copyToResult ? (e) => { e.preventDefault(); setCopyToOpen(false); setCopyToResult(null) } : handleCopyTo}
+        saving={copyToSaving}
+        error={copyToError}
+        submitLabel={copyToResult ? 'ปิด' : `Copy ไปยัง ${copyToSelected.size} Product${copyToSelected.size !== 1 ? 's' : ''}`}
+        width="max-w-lg">
+
+        {/* Source */}
+        <div className="px-3 py-2.5 bg-violet-50 border border-violet-200 rounded-lg text-sm">
+          <p className="text-xs text-violet-500 font-medium mb-0.5">Copy FROM (ต้นฉบับ)</p>
+          <p className="text-gray-800 font-medium">{copyToSource?.display_name ?? copyToSource?.code}</p>
+        </div>
+
+        {/* Result panel */}
+        {copyToResult ? (
+          <div className="space-y-2">
+            <div className="flex gap-4 text-sm px-1">
+              <span className="flex items-center gap-1 text-green-700"><CheckCheck size={14} /> สำเร็จ {copyToResult.copied} รายการ</span>
+              {copyToResult.failed > 0 && <span className="flex items-center gap-1 text-red-600"><XCircle size={14} /> ล้มเหลว {copyToResult.failed} รายการ</span>}
+            </div>
+            <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100">
+              {copyToResult.results.map(r => (
+                <div key={r.product_id} className={`flex items-center justify-between px-3 py-2 text-sm ${r.success ? '' : 'bg-red-50'}`}>
+                  <span className="text-gray-700">{r.product_name ?? `Product #${r.product_id}`}</span>
+                  {r.success
+                    ? <span className="flex items-center gap-1 text-green-600 text-xs font-mono"><CheckCheck size={12} />{r.bom_number}</span>
+                    : <span className="flex items-center gap-1 text-red-500 text-xs"><XCircle size={12} />{r.error}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* Target selection */
+          <div>
+            <Label required>เลือก Products ปลายทาง (Copy TO)</Label>
+            <p className="text-xs text-gray-400 mb-2">สามารถเลือกหลาย Product พร้อมกันได้ — ระบบจะสร้าง Draft BOM ให้แต่ละตัว</p>
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+              {filteredData.filter(p => p.id !== copyToSource?.id && p.is_active).length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-6">ไม่มี Product อื่น</p>
+              ) : (
+                filteredData
+                  .filter(p => p.id !== copyToSource?.id && p.is_active)
+                  .map(p => (
+                    <label key={p.id}
+                      className={`flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 ${copyToSelected.has(p.id) ? 'bg-violet-50/50' : ''}`}>
+                      <input type="checkbox" checked={copyToSelected.has(p.id)}
+                        onChange={() => toggleCopyTarget(p.id)} className="rounded accent-violet-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800 truncate">{p.display_name ?? p.code}</p>
+                        <p className="text-xs text-gray-400">
+                          {p.bom_status === 'ACTIVE' ? '⚠ มี Active BOM แล้ว — จะสร้าง Draft ใหม่ทับ'
+                            : p.bom_status === 'DRAFT' ? 'มี Draft BOM อยู่ — จะเพิ่ม Draft ใหม่'
+                            : 'ยังไม่มี BOM'}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                        p.bom_status === 'ACTIVE' ? 'bg-green-50 text-green-700'
+                        : p.bom_status === 'DRAFT' ? 'bg-amber-50 text-amber-600'
+                        : 'bg-gray-100 text-gray-400'}`}>
+                        {p.bom_status}
+                      </span>
+                    </label>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
+      </FormDialog>
+
+      {/* ── Add/Edit Product Dialog ────────────────────────────────── */}
       <FormDialog open={open} onClose={() => setOpen(false)}
         title={editing ? 'Edit Product' : 'Add Product'}
         onSubmit={handleSubmit} saving={saving} error={error} width="max-w-lg">

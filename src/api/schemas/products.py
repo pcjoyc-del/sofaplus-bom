@@ -29,6 +29,21 @@ class ProductUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
 
+class BomCopyToRequest(BaseModel):
+    target_product_ids: list[int]
+
+class BomCopyToResult(BaseModel):
+    product_id: int
+    product_name: Optional[str]
+    success: bool
+    bom_number: Optional[str] = None
+    error: Optional[str] = None
+
+class BomCopyToResponse(BaseModel):
+    copied: int
+    failed: int
+    results: list[BomCopyToResult]
+
 class ProductResponse(BaseModel):
     id: int
     code: str
