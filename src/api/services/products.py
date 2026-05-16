@@ -12,8 +12,14 @@ from ..models.materials import Material, MaterialPrice
 product_service = CRUDBase(Product)
 
 
-def _build_product_code(category_id: int, type_id: int, model_id: int) -> str:
-    return f"prd-{category_id}|{type_id}|{model_id}"
+def _build_product_code(category_id: int, type_id: int, model_id: int,
+                        width: float | None = None, depth: float | None = None) -> str:
+    base = f"prd-{category_id}|{type_id}|{model_id}"
+    if width is not None:
+        base += f"|w{int(width)}"
+    if depth is not None:
+        base += f"|d{int(depth)}"
+    return base
 
 
 def _clean(code: str) -> str:
@@ -25,15 +31,42 @@ def _generate_bom_number(cat_code: str, type_code: str, model_code: str, version
 
 
 async def create_product(db: AsyncSession, *, obj_in: dict) -> Product:
-    obj_in["code"] = _build_product_code(
-        obj_in["category_id"], obj_in["type_id"], obj_in["model_id"]
+    from decimal import Decimal
+
+    cat_id   = obj_in["category_id"]
+    type_id  = obj_in["type_id"]
+    model_id = obj_in["model_id"]
+    width    = float(obj_in["standard_width"])  if obj_in.get("standard_width")  else None
+    depth    = float(obj_in["standard_depth"])  if obj_in.get("standard_depth")  else None
+
+    # ── Explicit duplicate check: same Cat+Type+Model+Width+Depth = same Product ──
+    dup_q = select(Product).where(
+        Product.category_id == cat_id,
+        Product.type_id     == type_id,
+        Product.model_id    == model_id,
+        Product.is_active   == True,
     )
+    if width is not None:
+        dup_q = dup_q.where(Product.standard_width == Decimal(str(width)))
+    if depth is not None:
+        dup_q = dup_q.where(Product.standard_depth == Decimal(str(depth)))
+    existing = (await db.execute(dup_q)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Product ที่มี Category + Type + Model + ขนาดเดียวกันนี้มีอยู่แล้ว"
+        )
+
+    # ── Generate code (includes width+depth to be unique) ──
+    obj_in["code"] = _build_product_code(cat_id, type_id, model_id, width, depth)
+
     if not obj_in.get("display_name"):
-        cat   = await db.get(Category,     obj_in["category_id"])
-        ptype = await db.get(ProductType,  obj_in["type_id"])
-        model = await db.get(ProductModel, obj_in["model_id"])
+        cat   = await db.get(Category,     cat_id)
+        ptype = await db.get(ProductType,  type_id)
+        model = await db.get(ProductModel, model_id)
         if cat and ptype and model:
             obj_in["display_name"] = f"{cat.name} | {ptype.code} | {model.code}"
+
     try:
         product = Product(**obj_in)
         db.add(product)
@@ -42,7 +75,7 @@ async def create_product(db: AsyncSession, *, obj_in: dict) -> Product:
         return product
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Product with this Category + Type + Model + Size already exists")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "ไม่สามารถสร้าง Product ได้ — ข้อมูล conflict")
 
 
 async def get_active_bom(db: AsyncSession, product_id: int) -> BomVersion | None:
